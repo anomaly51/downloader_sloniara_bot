@@ -1,0 +1,11 @@
+Activate a virtual environment:
+source venv/bin/activate
+
+Install dependencies:
+pip install -r requirements.txt
+
+Run the bot:
+python main.py
+
+docker buildx build --platform linux/amd64 -t catprogrammer/telegram-bot:latest --push .
+docker build -t catprogrammer/downloader_sloniara_bot:latest --push .
