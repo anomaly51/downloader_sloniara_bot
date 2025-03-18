@@ -2,3 +2,5 @@ telethon
 pytubefix
 pyktok
 instaloader
+requests
+moviepy==1.0.3
