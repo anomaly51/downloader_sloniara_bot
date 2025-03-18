@@ -5,7 +5,7 @@ from collections import deque
 from config import API_ID, API_HASH, PHONE_NUMBER
 from utils import update_readers, handle_video_link
 
-os.makedirs("./content", exist_ok=True)  # Создаем каталог ./content
+os.makedirs("./content", exist_ok=True)
 
 client = TelegramClient("user", API_ID, API_HASH)
 LAST_MESSAGES = deque(maxlen=5)

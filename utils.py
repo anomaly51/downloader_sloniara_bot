@@ -9,7 +9,6 @@ from youtube_handler import download_youtube_video
 
 
 async def get_readers(client, chat_id, message_id, sender_id):
-    """Получает список пользователей, прочитавших сообщение."""
     readers = set()
     try:
         result = await client(
@@ -30,7 +29,6 @@ async def get_readers(client, chat_id, message_id, sender_id):
 
 
 async def update_message_caption(client, message, readers):
-    """Обновляет подпись сообщения с учетом прочитавших."""
     new_caption = message.text.split("👤:")[0].strip()
     if readers:
         new_caption += f"\n👤: {', '.join(readers)}"
@@ -39,7 +37,6 @@ async def update_message_caption(client, message, readers):
 
 
 async def update_readers(client, LAST_MESSAGES):
-    """Обновляет список прочитавших для всех сообщений в очереди."""
     while True:
         for entry in list(LAST_MESSAGES):
             chat_id = entry["chat_id"]
@@ -51,7 +48,6 @@ async def update_readers(client, LAST_MESSAGES):
 
 
 def download_video(url):
-    """Скачивает видео по URL и возвращает путь к файлу, заголовок и путь для очистки."""
     if "youtube.com" in url or "youtu.be" in url:
         return download_youtube_video(url)
     elif "tiktok.com" in url:
@@ -62,7 +58,6 @@ def download_video(url):
 
 
 async def send_video(client, event, file_path, sender_name, url, video_title):
-    """Отправляет видео в чат и возвращает сообщение."""
     caption = (
         f"{sender_name}\n{url}"
         if not video_title
@@ -72,7 +67,6 @@ async def send_video(client, event, file_path, sender_name, url, video_title):
 
 
 def cleanup(cleanup_path):
-    """Удаляет временные файлы или директории после отправки."""
     if os.path.isdir(cleanup_path):
         shutil.rmtree(cleanup_path, ignore_errors=True)
     elif os.path.exists(cleanup_path):
@@ -80,7 +74,6 @@ def cleanup(cleanup_path):
 
 
 async def handle_video_link(event, client, LAST_MESSAGES):
-    """Обрабатывает ссылку на видео и отправляет его в чат."""
     url = event.message.raw_text
     sender = await event.get_sender()
     sender_id = sender.id
