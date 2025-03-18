@@ -51,3 +51,42 @@ async def test_instagram_download(temp_content_dir):
         url = "https://instagram.com/p/abc123/"
         result = download_instagram_video(url)
         assert "abc123" in result[0]
+
+def test_unsupported_url():
+    from utils import download_video
+    result = download_video("https://example.com/video")
+    assert result == (None, None, None)
+
+def test_tiktok_download_error():
+    with patch('pyktok.alt_get_tiktok_json') as mock_get_json:
+        mock_get_json.side_effect = Exception("API Error")
+        with pytest.raises(ValueError, match="Ошибка при загрузке TikTok видео: API Error"):
+            download_tiktok_video("invalid_url")
+
+def test_youtube_download_error():
+    with patch('pytubefix.YouTube') as mock_yt:
+        mock_yt.side_effect = Exception("Video unavailable")
+        with pytest.raises(ValueError, match="Ошибка при загрузке YouTube видео: Video unavailable"):
+            download_youtube_video("invalid_url")
+
+def test_instagram_download_error():
+    with patch('instaloader.Post') as mock_post:
+        mock_post.side_effect = Exception("Invalid shortcode")
+        with pytest.raises(ValueError, match="Ошибка при загрузке Instagram видео: Invalid shortcode"):
+            download_instagram_video("invalid_url")
+
+def test_multiple_hashtags_removal():
+    with patch('pyktok.alt_get_tiktok_json') as mock_get_json, \
+         patch('pyktok.save_tiktok') as mock_save:
+        mock_get_json.return_value = {
+            "__DEFAULT_SCOPE__": {
+                "webapp.video-detail": {
+                    "shareMeta": {"desc": "#Test #video #tags"}
+                }
+            }
+        }
+        mock_save.return_value = None
+        
+        url = "https://www.tiktok.com/@test/video/123"
+        result = download_tiktok_video(url)
+        assert "Test video tags" in result[1]
