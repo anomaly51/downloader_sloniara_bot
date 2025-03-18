@@ -29,22 +29,38 @@ async def get_readers(client, chat_id, message_id, sender_id):
 
 
 async def update_message_caption(client, message, readers):
-    new_caption = message.text.split("👤:")[0].strip()
-    if readers:
-        new_caption += f"\n👤: {', '.join(readers)}"
-    if new_caption != message.text:
-        await message.edit(new_caption)
+    try:
+        original_caption = message.text or ""
+        new_caption = original_caption.split("👤:")[0].strip()
+        if readers:
+            new_caption += f"\n👤: {', '.join(readers)}"
+        
+        if new_caption != original_caption and message.id:
+            await message.edit(new_caption)
+    except Exception as e:
+        if "Message not modified" not in str(e):
+            print(f"Error updating caption: {e}")
 
 
 async def update_readers(client, LAST_MESSAGES):
     while True:
-        for entry in list(LAST_MESSAGES):
-            chat_id = entry["chat_id"]
-            message = entry["message"]
-            sender_id = entry["sender_id"]
-            readers = await get_readers(client, chat_id, message.id, sender_id)
-            await update_message_caption(client, message, readers)
-        await asyncio.sleep(10)
+        try:
+            for entry in list(LAST_MESSAGES):
+                try:
+                    chat_id = entry["chat_id"]
+                    message = entry["message"]
+                    sender_id = entry["sender_id"]
+                    if not message.id:  # Skip if message has no ID
+                        continue
+                    readers = await get_readers(client, chat_id, message.id, sender_id)
+                    await update_message_caption(client, message, readers)
+                except Exception as e:
+                    print(f"Error processing message entry: {e}")
+                    continue
+            await asyncio.sleep(10)
+        except Exception as e:
+            print(f"Error in update_readers loop: {e}")
+            await asyncio.sleep(10)
 
 
 def download_video(url):
