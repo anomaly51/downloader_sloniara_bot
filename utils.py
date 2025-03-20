@@ -33,28 +33,28 @@ async def update_message_caption(client, message, readers):
         original_caption = message.text or ""
         # Split into prefix and existing readers using partition
         prefix, sep, existing_readers = original_caption.partition("👤:")
-        prefix = prefix.rstrip('\n').strip()
-        
+        prefix = prefix.rstrip("\n").strip()
+
         new_caption = prefix
         readers_str = ""
-        
+
         if readers:
             # Sort readers and create readers string
             sorted_readers = sorted(readers)
             readers_str = f"\n👤: {', '.join(sorted_readers)}"
-            
+
             # Normalize existing and new readers strings
             existing_normalized = " ".join(existing_readers.strip().split())
             new_normalized = " ".join(readers_str.strip().split())
-            
+
             # Only add if meaningfully different
             if existing_normalized != new_normalized:
                 new_caption += readers_str
-        
+
         # Check if we have meaningful changes considering all possible whitespace
         original_normalized = " ".join(original_caption.strip().split())
         new_normalized = " ".join(new_caption.strip().split())
-        
+
         if new_normalized != original_normalized and message.id:
             await message.edit(new_caption)
     except Exception as e:
@@ -72,10 +72,12 @@ async def update_readers(client, LAST_MESSAGES):
                     sender_id = entry["sender_id"]
                     if not message.id:  # Skip if message has no ID
                         continue
-                    current_readers = await get_readers(client, chat_id, message.id, sender_id)
+                    current_readers = await get_readers(
+                        client, chat_id, message.id, sender_id
+                    )
                     # Get previous readers from message entry
                     previous_readers = entry.get("readers", set())
-                    
+
                     # Only update if there's an actual change in readers
                     if current_readers != previous_readers:
                         await update_message_caption(client, message, current_readers)
@@ -123,7 +125,7 @@ async def handle_video_link(event, client, LAST_MESSAGES):
     sender_name = f"@{sender.username}" if sender.username else sender.first_name
     status_message = await client.send_message(event.chat_id, "🕰️")
     try:
-        file_path, video_title, cleanup_path = download_video(url)
+        file_path, video_title = download_video(url)
         if not file_path or not os.path.exists(file_path):
             await client.send_message(
                 event.chat_id, "Не удалось скачать видео или ссылка не поддерживается."
@@ -132,14 +134,13 @@ async def handle_video_link(event, client, LAST_MESSAGES):
         message_with_video = await send_video(
             client, event, file_path, sender_name, url, video_title
         )
-        cleanup(cleanup_path)
         await event.delete()
         LAST_MESSAGES.append(
             {
                 "chat_id": event.chat_id,
                 "message": message_with_video,
                 "sender_id": sender_id,
-                "readers": set()  # Initialize with empty readers set
+                "readers": set(),  # Initialize with empty readers set
             }
         )
     except Exception as e:
