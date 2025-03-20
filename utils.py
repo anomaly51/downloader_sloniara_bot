@@ -31,11 +31,31 @@ async def get_readers(client, chat_id, message_id, sender_id):
 async def update_message_caption(client, message, readers):
     try:
         original_caption = message.text or ""
-        new_caption = original_caption.split("👤:")[0].strip()
-        if readers:
-            new_caption += f"\n👤: {', '.join(readers)}"
+        # Split into prefix and existing readers using partition
+        prefix, sep, existing_readers = original_caption.partition("👤:")
+        prefix = prefix.rstrip('\n').strip()
         
-        if new_caption != original_caption and message.id:
+        new_caption = prefix
+        readers_str = ""
+        
+        if readers:
+            # Sort readers and create readers string
+            sorted_readers = sorted(readers)
+            readers_str = f"\n👤: {', '.join(sorted_readers)}"
+            
+            # Normalize existing and new readers strings
+            existing_normalized = " ".join(existing_readers.strip().split())
+            new_normalized = " ".join(readers_str.strip().split())
+            
+            # Only add if meaningfully different
+            if existing_normalized != new_normalized:
+                new_caption += readers_str
+        
+        # Check if we have meaningful changes considering all possible whitespace
+        original_normalized = " ".join(original_caption.strip().split())
+        new_normalized = " ".join(new_caption.strip().split())
+        
+        if new_normalized != original_normalized and message.id:
             await message.edit(new_caption)
     except Exception as e:
         if "Message not modified" not in str(e):
@@ -52,8 +72,15 @@ async def update_readers(client, LAST_MESSAGES):
                     sender_id = entry["sender_id"]
                     if not message.id:  # Skip if message has no ID
                         continue
-                    readers = await get_readers(client, chat_id, message.id, sender_id)
-                    await update_message_caption(client, message, readers)
+                    current_readers = await get_readers(client, chat_id, message.id, sender_id)
+                    # Get previous readers from message entry
+                    previous_readers = entry.get("readers", set())
+                    
+                    # Only update if there's an actual change in readers
+                    if current_readers != previous_readers:
+                        await update_message_caption(client, message, current_readers)
+                        # Update stored readers after successful update
+                        entry["readers"] = current_readers
                 except Exception as e:
                     print(f"Error processing message entry: {e}")
                     continue
@@ -112,6 +139,7 @@ async def handle_video_link(event, client, LAST_MESSAGES):
                 "chat_id": event.chat_id,
                 "message": message_with_video,
                 "sender_id": sender_id,
+                "readers": set()  # Initialize with empty readers set
             }
         )
     except Exception as e:

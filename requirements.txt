@@ -4,3 +4,6 @@ pyktok
 instaloader
 requests
 moviepy==1.0.3
+yt-dlp
+TikTokApi
+playwright
