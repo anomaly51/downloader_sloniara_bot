@@ -20,16 +20,18 @@ def download_tiktok_photos_with_audio(url):
                 "--dest",
                 temp_dir,
                 "--write-metadata",
-                "--filename",
-                f"{video_id}_{{num:02d}}.{{extension}}",
                 url,
-            ]
+            ],
         )
-        metadata_files = glob.glob(os.path.join(temp_dir, "*.json"))
+        metadata_files = glob.glob(
+            os.path.join(temp_dir, "**", "*.json"), recursive=True
+        )
         title = "No title found"
+
         if metadata_files:
             with open(metadata_files[0], "r") as f:
                 data = json.load(f)
+                print(data)
                 title = data.get("desc", "No title found")
         for file in glob.glob(os.path.join(temp_dir, "**", "*"), recursive=True):
             if os.path.isfile(file) and file.endswith((".jpg", ".mp3")):
@@ -76,14 +78,12 @@ def download_tiktok_video(url):
         if not video_files:
             return None, title
 
-        # Determine final filename
         source_path = video_files[0]
         if video_id:
             filename = f"{video_id}.mp4"
         else:
             filename = os.path.basename(source_path)
 
-        # Move to download directory
         dest_path = os.path.join(DOWNLOAD_DIR, filename)
         shutil.move(source_path, dest_path)
 

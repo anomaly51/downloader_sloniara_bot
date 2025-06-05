@@ -1,10 +1,18 @@
 import asyncio
 import os
 import shutil
+import re
 from telethon import functions
+import requests
 
-from instagram_handler import download_instagram_video
-from tiktok_handlers import download_tiktok_video
+from instagram_handlers import (
+    download_instagram_photos_with_audio,
+    download_instagram_video,
+)
+from tiktok_handlers import (
+    download_tiktok_video,
+    download_tiktok_photos_with_audio,
+)
 from youtube_handler import download_youtube_video
 
 
@@ -31,7 +39,6 @@ async def get_readers(client, chat_id, message_id, sender_id):
 async def update_message_caption(client, message, readers):
     try:
         original_caption = message.text or ""
-        # Split into prefix and existing readers using partition
         prefix, sep, existing_readers = original_caption.partition("👤:")
         prefix = prefix.rstrip("\n").strip()
 
@@ -39,19 +46,15 @@ async def update_message_caption(client, message, readers):
         readers_str = ""
 
         if readers:
-            # Sort readers and create readers string
             sorted_readers = sorted(readers)
             readers_str = f"\n👤: {', '.join(sorted_readers)}"
 
-            # Normalize existing and new readers strings
             existing_normalized = " ".join(existing_readers.strip().split())
             new_normalized = " ".join(readers_str.strip().split())
 
-            # Only add if meaningfully different
             if existing_normalized != new_normalized:
                 new_caption += readers_str
 
-        # Check if we have meaningful changes considering all possible whitespace
         original_normalized = " ".join(original_caption.strip().split())
         new_normalized = " ".join(new_caption.strip().split())
 
@@ -70,18 +73,16 @@ async def update_readers(client, LAST_MESSAGES):
                     chat_id = entry["chat_id"]
                     message = entry["message"]
                     sender_id = entry["sender_id"]
-                    if not message.id:  # Skip if message has no ID
+                    if not message.id:
                         continue
                     current_readers = await get_readers(
                         client, chat_id, message.id, sender_id
                     )
-                    # Get previous readers from message entry
+
                     previous_readers = entry.get("readers", set())
 
-                    # Only update if there's an actual change in readers
                     if current_readers != previous_readers:
                         await update_message_caption(client, message, current_readers)
-                        # Update stored readers after successful update
                         entry["readers"] = current_readers
                 except Exception as e:
                     print(f"Error processing message entry: {e}")
@@ -92,25 +93,6 @@ async def update_readers(client, LAST_MESSAGES):
             await asyncio.sleep(10)
 
 
-def download_video(url):
-    if "youtube.com" in url or "youtu.be" in url:
-        return download_youtube_video(url)
-    elif "tiktok.com" in url:
-        return download_tiktok_video(url)
-    elif "instagram.com" in url:
-        return download_instagram_video(url)
-    return None, None, None
-
-
-async def send_video(client, event, file_path, sender_name, url, video_title):
-    caption = (
-        f"{sender_name}\n{url}"
-        if not video_title
-        else f"{sender_name}\n{video_title}\n{url}"
-    )
-    return await client.send_file(event.chat_id, file_path, caption=caption)
-
-
 def cleanup(cleanup_path):
     if os.path.isdir(cleanup_path):
         shutil.rmtree(cleanup_path, ignore_errors=True)
@@ -118,31 +100,137 @@ def cleanup(cleanup_path):
         os.remove(cleanup_path)
 
 
-async def handle_video_link(event, client, LAST_MESSAGES):
+def sanitize_filename(name):
+    """Remove invalid characters from filename"""
+    return re.sub(r'[\\/*?:"<>|]', "", name)
+
+
+async def handle_content_link(event, client, LAST_MESSAGES):
     url = event.message.raw_text
     sender = await event.get_sender()
     sender_id = sender.id
     sender_name = f"@{sender.username}" if sender.username else sender.first_name
     status_message = await client.send_message(event.chat_id, "🕰️")
     try:
-        # Интеграция логики download_video
-        if "youtube.com" in url or "youtu.be" in url:
-            file_path, video_title = download_youtube_video(url)
-        elif "tiktok.com" in url:
-            file_path, video_title = download_tiktok_video(url)
-        elif "instagram.com" in url:
-            file_path, video_title = download_instagram_video(url)
+        try:
+            response = requests.head(url, allow_redirects=True, timeout=5)
+            resolved_url = response.url
+        except requests.RequestException:
+            resolved_url = url
+
+        if "youtube.com" in resolved_url or "youtu.be" in resolved_url:
+            file_path, video_title = download_youtube_video(resolved_url)
+        elif "tiktok.com" in resolved_url:
+            if "/photo/" in resolved_url:
+                photos_filename, audio_filename, video_title = (
+                    download_tiktok_photos_with_audio(resolved_url)
+                )
+
+                if not photos_filename:
+                    await client.send_message(event.chat_id, "Не удалось скачать фото.")
+                    return
+
+                caption = (
+                    f"{sender_name}\n{url}"
+                    if not video_title
+                    else f"{sender_name}\n{video_title}\n{url}"
+                )
+
+                message_with_photos = await client.send_file(
+                    event.chat_id, photos_filename, caption=caption
+                )
+
+                if audio_filename:
+                    if video_title:
+                        sanitized_title = sanitize_filename(video_title)
+                        new_audio_path = os.path.join(
+                            os.path.dirname(audio_filename), f"{sanitized_title}.mp3"
+                        )
+                        os.rename(audio_filename, new_audio_path)
+                        audio_filename = new_audio_path
+
+                    await client.send_file(event.chat_id, audio_filename, caption="")
+
+                await event.delete()
+
+                LAST_MESSAGES.append(
+                    {
+                        "chat_id": event.chat_id,
+                        "message": message_with_photos,
+                        "sender_id": sender_id,
+                        "readers": set(),
+                    }
+                )
+
+                for file_path in photos_filename:
+                    cleanup(file_path)
+                if audio_filename:
+                    cleanup(audio_filename)
+
+                await status_message.delete()
+                return
+            else:
+                file_path, video_title = download_tiktok_video(resolved_url)
+        elif "instagram.com" in resolved_url:
+            if "/p/" in resolved_url or "/reel/" in resolved_url:
+                photos_filename, audio_filename, video_title = (
+                    download_instagram_photos_with_audio(resolved_url)
+                )
+
+                if not photos_filename:
+                    await client.send_message(event.chat_id, "Не удалось скачать фото.")
+                    return
+
+                caption = (
+                    f"{sender_name}\n{url}"
+                    if not video_title
+                    else f"{sender_name}\n{video_title}\n{url}"
+                )
+
+                message_with_photos = await client.send_file(
+                    event.chat_id, photos_filename, caption=caption
+                )
+
+                if audio_filename:
+                    if video_title:
+                        sanitized_title = sanitize_filename(video_title)
+                        new_audio_path = os.path.join(
+                            os.path.dirname(audio_filename), f"{sanitized_title}.mp3"
+                        )
+                        os.rename(audio_filename, new_audio_path)
+                        audio_filename = new_audio_path
+
+                    await client.send_file(event.chat_id, audio_filename, caption="")
+
+                await event.delete()
+
+                LAST_MESSAGES.append(
+                    {
+                        "chat_id": event.chat_id,
+                        "message": message_with_photos,
+                        "sender_id": sender_id,
+                        "readers": set(),
+                    }
+                )
+
+                for file_path in photos_filename:
+                    cleanup(file_path)
+                if audio_filename:
+                    cleanup(audio_filename)
+
+                await status_message.delete()
+                return
+            else:
+                file_path, video_title = download_instagram_video(resolved_url)
         else:
             file_path, video_title = None, None
 
-        # Проверка успешности скачивания
         if not file_path or not os.path.exists(file_path):
             await client.send_message(
                 event.chat_id, "Не удалось скачать видео или ссылка не поддерживается."
             )
             return
 
-        # Интеграция логики send_video и отправка видео
         caption = (
             f"{sender_name}\n{url}"
             if not video_title
@@ -152,10 +240,8 @@ async def handle_video_link(event, client, LAST_MESSAGES):
             event.chat_id, file_path, caption=caption
         )
 
-        # Удаление исходного сообщения
         await event.delete()
 
-        # Добавление в LAST_MESSAGES
         LAST_MESSAGES.append(
             {
                 "chat_id": event.chat_id,
@@ -165,10 +251,10 @@ async def handle_video_link(event, client, LAST_MESSAGES):
             }
         )
 
-        # Очистка файла после отправки
         cleanup(file_path)
 
     except Exception as e:
         await client.send_message(event.chat_id, f"Произошла ошибка: {e}")
     finally:
         await status_message.delete()
+

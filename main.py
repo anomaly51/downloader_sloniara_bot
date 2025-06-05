@@ -3,7 +3,7 @@ import os
 from telethon import TelegramClient, events
 from collections import deque
 from config import API_ID, API_HASH, PHONE_NUMBER
-from utils import update_readers, handle_video_link
+from utils import update_readers, handle_content_link
 
 os.makedirs("./content", exist_ok=True)
 
@@ -13,7 +13,7 @@ LAST_MESSAGES = deque(maxlen=5)
 
 @client.on(events.NewMessage(pattern=r"http[s]?://[^\s]+"))
 async def handler(event):
-    await handle_video_link(event, client, LAST_MESSAGES)
+    await handle_content_link(event, client, LAST_MESSAGES)
 
 
 async def main():
@@ -28,4 +28,3 @@ async def main():
 if __name__ == "__main__":
     print("Клиент запускается2")
     asyncio.run(main())
-
