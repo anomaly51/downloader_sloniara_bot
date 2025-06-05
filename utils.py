@@ -4,7 +4,7 @@ import shutil
 from telethon import functions
 
 from instagram_handler import download_instagram_video
-from tiktok_handler import download_tiktok_video
+from tiktok_handlers import download_tiktok_video
 from youtube_handler import download_youtube_video
 
 
@@ -125,24 +125,49 @@ async def handle_video_link(event, client, LAST_MESSAGES):
     sender_name = f"@{sender.username}" if sender.username else sender.first_name
     status_message = await client.send_message(event.chat_id, "🕰️")
     try:
-        file_path, video_title = download_video(url)
+        # Интеграция логики download_video
+        if "youtube.com" in url or "youtu.be" in url:
+            file_path, video_title = download_youtube_video(url)
+        elif "tiktok.com" in url:
+            file_path, video_title = download_tiktok_video(url)
+        elif "instagram.com" in url:
+            file_path, video_title = download_instagram_video(url)
+        else:
+            file_path, video_title = None, None
+
+        # Проверка успешности скачивания
         if not file_path or not os.path.exists(file_path):
             await client.send_message(
                 event.chat_id, "Не удалось скачать видео или ссылка не поддерживается."
             )
             return
-        message_with_video = await send_video(
-            client, event, file_path, sender_name, url, video_title
+
+        # Интеграция логики send_video и отправка видео
+        caption = (
+            f"{sender_name}\n{url}"
+            if not video_title
+            else f"{sender_name}\n{video_title}\n{url}"
         )
+        message_with_video = await client.send_file(
+            event.chat_id, file_path, caption=caption
+        )
+
+        # Удаление исходного сообщения
         await event.delete()
+
+        # Добавление в LAST_MESSAGES
         LAST_MESSAGES.append(
             {
                 "chat_id": event.chat_id,
                 "message": message_with_video,
                 "sender_id": sender_id,
-                "readers": set(),  # Initialize with empty readers set
+                "readers": set(),
             }
         )
+
+        # Очистка файла после отправки
+        cleanup(file_path)
+
     except Exception as e:
         await client.send_message(event.chat_id, f"Произошла ошибка: {e}")
     finally:

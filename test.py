@@ -1,12 +1,14 @@
-from yt_dlp import YoutubeDL
+import subprocess
+import json
 
-# Ссылка на ваше видео
-url = "https://www.tiktok.com/@.povhistory/video/7483182895247396118?is_from_webapp=1&sender_device=pc"
+URL = "https://www.tiktok.com/@storymur/video/7468695039820975382"
+COOKIES_FILE = "tiktok-cookies.txt"
 
-# Опции (имя файла)
-ydl_opts = {"outtmpl": "tiktok_video.mp4"}
-
-# Скачивание
-with YoutubeDL(ydl_opts) as ydl:
-    ydl.download([url])
+info = subprocess.run(
+    ["yt-dlp", "--dump-json", URL, "--cookies", COOKIES_FILE],
+    capture_output=True,
+    text=True,
+)
+print("Title:", json.loads(info.stdout)["title"])
+subprocess.run(["yt-dlp", URL, "--cookies", COOKIES_FILE])
 
