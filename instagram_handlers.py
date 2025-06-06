@@ -7,7 +7,7 @@ import tempfile
 import json
 
 
-def download_instagram_photos_with_audio(url):
+def download_instagram_content(url):
     DOWNLOAD_DIR = "./downloads"
     post_id = re.search(r"/(p|reel)/([A-Za-z0-9_-]+)", url)
     if not post_id:
@@ -31,75 +31,56 @@ def download_instagram_photos_with_audio(url):
             os.path.join(temp_dir, "**", "*.json"), recursive=True
         )
         title = "No title found"
-
         if metadata_files:
             try:
                 with open(metadata_files[0], "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    title = data.get("caption", "No title found")
+                    print(data)
+                    title = data.get("description") or data.get(
+                        "edge_media_to_caption", {}
+                    ).get("edges", [{}])[0].get("node", {}).get(
+                        "text", "No title found"
+                    )
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 print(f"Error reading metadata: {e}")
 
-        photos = []
+        media_files = glob.glob(os.path.join(temp_dir, "**", "*"), recursive=True)
+        media_files = [
+            f for f in media_files if f.endswith((".jpg", ".jpeg", ".png", ".mp4"))
+        ]
+
+        # Сортировка файлов по числовой части в имени для сохранения порядка
+        def get_number(filename):
+            match = re.search(r"_(\d+)\.", os.path.basename(filename))
+            return int(match.group(1)) if match else 0
+
+        media_files.sort(key=get_number)
+
+        media = []
+        for file in media_files:
+            if file.endswith((".jpg", ".jpeg", ".png")):
+                type_ = "photo"
+            elif file.endswith(".mp4"):
+                type_ = "video"
+            else:
+                continue
+            dest_file = os.path.join(DOWNLOAD_DIR, os.path.basename(file))
+            shutil.move(file, dest_file)
+            media.append({"type": type_, "file_path": dest_file})
+
+        audio_files = glob.glob(os.path.join(temp_dir, "**", "*.mp3"), recursive=True)
         audio = None
-        for file in glob.glob(os.path.join(temp_dir, "**", "*"), recursive=True):
-            if os.path.isfile(file):
-                if file.endswith((".jpg", ".jpeg", ".png")):
-                    dest_file = os.path.join(DOWNLOAD_DIR, os.path.basename(file))
-                    shutil.move(file, dest_file)
-                    photos.append(dest_file)
-                elif file.endswith(".mp3"):
-                    dest_file = os.path.join(DOWNLOAD_DIR, os.path.basename(file))
-                    shutil.move(file, dest_file)
-                    audio = dest_file
+        if audio_files:
+            audio = os.path.join(DOWNLOAD_DIR, os.path.basename(audio_files[0]))
+            shutil.move(audio_files[0], audio)
 
-        return photos, audio, title
+        return {"media": media, "audio": audio, "title": title}
 
 
-def download_instagram_video(url):
-    DOWNLOAD_DIR = "./downloads"
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+if __name__ == "__main__":
+    mixed_url = "https://www.instagram.com/p/DI0AO2vo_CVgqiOnHW0E-Lc18EtQ9RZ-zd7oHI0/"
+    content = download_instagram_content(mixed_url)
+    print("Media:", content["media"])
+    print("Audio:", content["audio"])
+    print("Title:", content["title"])
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        subprocess.run(
-            [
-                "gallery-dl",
-                "--cookies",
-                "instagram-cookies.txt",
-                "--dest",
-                temp_dir,
-                "--write-metadata",
-                url,
-            ],
-            check=True,
-        )
-
-        metadata_files = glob.glob(
-            os.path.join(temp_dir, "**", "*.json"), recursive=True
-        )
-        post_id = None
-        title = "No title found"
-
-        if metadata_files:
-            try:
-                with open(metadata_files[0], "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    title = data.get("caption", "No title found")
-                    post_id = data.get("id")
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                print(f"Error reading metadata: {e}")
-
-        video_files = glob.glob(os.path.join(temp_dir, "**", "*.mp4"), recursive=True)
-        if not video_files:
-            return None, title
-
-        source_path = video_files[0]
-        if post_id:
-            filename = f"{post_id}.mp4"
-        else:
-            filename = os.path.basename(source_path)
-
-        dest_path = os.path.join(DOWNLOAD_DIR, filename)
-        shutil.move(source_path, dest_path)
-
-        return dest_path, title

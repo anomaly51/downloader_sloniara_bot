@@ -5,10 +5,7 @@ import re
 from telethon import functions
 import requests
 
-from instagram_handlers import (
-    download_instagram_photos_with_audio,
-    download_instagram_video,
-)
+from instagram_handlers import download_instagram_content
 from tiktok_handlers import (
     download_tiktok_video,
     download_tiktok_photos_with_audio,
@@ -101,7 +98,6 @@ def cleanup(cleanup_path):
 
 
 def sanitize_filename(name):
-    """Remove invalid characters from filename"""
     return re.sub(r'[\\/*?:"<>|]', "", name)
 
 
@@ -118,9 +114,9 @@ async def handle_content_link(event, client, LAST_MESSAGES):
         except requests.RequestException:
             resolved_url = url
 
-        if "youtube.com" in resolved_url or "youtu.be" in resolved_url:
-            file_path, video_title = download_youtube_video(resolved_url)
-        elif "tiktok.com" in resolved_url:
+        # if "youtube.com" in resolved_url or "youtu.be" in resolved_url:
+        # file_path, video_title = download_youtube_video(resolved_url)
+        if "tiktok.com" in resolved_url:
             if "/photo/" in resolved_url:
                 photos_filename, audio_filename, video_title = (
                     download_tiktok_photos_with_audio(resolved_url)
@@ -172,38 +168,27 @@ async def handle_content_link(event, client, LAST_MESSAGES):
             else:
                 file_path, video_title = download_tiktok_video(resolved_url)
         elif "instagram.com" in resolved_url:
-            if "/p/" in resolved_url or "/reel/" in resolved_url:
-                photos_filename, audio_filename, video_title = (
-                    download_instagram_photos_with_audio(resolved_url)
-                )
+            content = download_instagram_content(resolved_url)
+            media = content["media"]
+            audio = content["audio"]
+            video_title = content["title"]
 
-                if not photos_filename:
-                    await client.send_message(event.chat_id, "Не удалось скачать фото.")
-                    return
+            if not media:
+                await client.send_message(event.chat_id, "Не удалось скачать контент.")
+                return
 
-                caption = (
-                    f"{sender_name}\n{url}"
-                    if not video_title
-                    else f"{sender_name}\n{video_title}\n{url}"
-                )
+            caption = (
+                f"{sender_name}\n{url}"
+                if not video_title
+                else f"{sender_name}\n{video_title}\n{url}"
+            )
 
+            # Отправка фото как альбома
+            photos = [m["file_path"] for m in media if m["type"] == "photo"]
+            if photos:
                 message_with_photos = await client.send_file(
-                    event.chat_id, photos_filename, caption=caption
+                    event.chat_id, photos, caption=caption
                 )
-
-                if audio_filename:
-                    if video_title:
-                        sanitized_title = sanitize_filename(video_title)
-                        new_audio_path = os.path.join(
-                            os.path.dirname(audio_filename), f"{sanitized_title}.mp3"
-                        )
-                        os.rename(audio_filename, new_audio_path)
-                        audio_filename = new_audio_path
-
-                    await client.send_file(event.chat_id, audio_filename, caption="")
-
-                await event.delete()
-
                 LAST_MESSAGES.append(
                     {
                         "chat_id": event.chat_id,
@@ -213,22 +198,40 @@ async def handle_content_link(event, client, LAST_MESSAGES):
                     }
                 )
 
-                for file_path in photos_filename:
-                    cleanup(file_path)
-                if audio_filename:
-                    cleanup(audio_filename)
+            # Отправка видео по отдельности
+            for m in media:
+                if m["type"] == "video":
+                    message_with_video = await client.send_file(
+                        event.chat_id, m["file_path"], caption=caption
+                    )
+                    LAST_MESSAGES.append(
+                        {
+                            "chat_id": event.chat_id,
+                            "message": message_with_video,
+                            "sender_id": sender_id,
+                            "readers": set(),
+                        }
+                    )
 
-                await status_message.delete()
-                return
-            else:
-                file_path, video_title = download_instagram_video(resolved_url)
+            # Отправка аудио, если есть
+            if audio:
+                await client.send_file(event.chat_id, audio, caption="")
+
+            await event.delete()
+
+            # Очистка
+            for m in media:
+                cleanup(m["file_path"])
+            if audio:
+                cleanup(audio)
+
+            await status_message.delete()
+            return
         else:
             file_path, video_title = None, None
 
         if not file_path or not os.path.exists(file_path):
-            await client.send_message(
-                event.chat_id, "Не удалось скачать видео или ссылка не поддерживается."
-            )
+            print("Не удалось скачать видео или ссылка не поддерживается.")
             return
 
         caption = (
