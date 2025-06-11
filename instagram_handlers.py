@@ -30,7 +30,7 @@ def download_instagram_content(url):
         metadata_files = glob.glob(
             os.path.join(temp_dir, "**", "*.json"), recursive=True
         )
-        title = "No title found"
+        title = ""
         if metadata_files:
             try:
                 with open(metadata_files[0], "r", encoding="utf-8") as f:
@@ -38,9 +38,7 @@ def download_instagram_content(url):
                     print(data)
                     title = data.get("description") or data.get(
                         "edge_media_to_caption", {}
-                    ).get("edges", [{}])[0].get("node", {}).get(
-                        "text", "No title found"
-                    )
+                    ).get("edges", [{}])[0].get("node", {}).get("text", "")
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 print(f"Error reading metadata: {e}")
 
