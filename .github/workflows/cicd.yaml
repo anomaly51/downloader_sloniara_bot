@@ -34,7 +34,7 @@ jobs:
         token: ${{ secrets.DEVOPS_REPO_TOKEN }}
 
     - name: Update Helm chart
-      working-directory: ./proxmox-infra/dev/argocd/k8s/templates
+      working-directory: ./proxmox-infra/argocd-terraform/envs/dev/argocd-downloader-sloniara-bot/k8s
       run: |
         CHART_PATH="values.yaml"
         sed -i "/^\s*repository:/s|:.*|: catprogrammer/downloader_sloniara_bot|" $CHART_PATH
