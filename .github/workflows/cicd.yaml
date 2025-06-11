@@ -34,15 +34,16 @@ jobs:
         token: ${{ secrets.DEVOPS_REPO_TOKEN }}
 
     - name: Update Helm chart
+      working-directory: ./proxmox-infra/dev/argocd/k8s/templates
       run: |
-        CHART_PATH="proxmox-infra/k8s/values.yaml"
-        sed -i "s|repository: .*|repository: catprogrammer/downloader_sloniara_bot|g" $CHART_PATH
-        sed -i "s|tag: .*|tag: ${IMAGE_TAG##*:}|g" $CHART_PATH
+        CHART_PATH="values.yaml"
+        sed -i "/^\s*repository:/s|:.*|: catprogrammer/downloader_sloniara_bot|" $CHART_PATH
+        sed -i "/^\s*tag:/s|:.*|: ${IMAGE_TAG##*:}|" $CHART_PATH
 
     - name: Commit and push changes
       run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
-        git add proxmox-infra/k8s/values.yaml
+        git add proxmox-infra/dev/argocd/k8s/templates/values.yaml
         git commit -m "Update image to ${{ env.IMAGE_TAG }}"
         git push
