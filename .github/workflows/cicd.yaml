@@ -18,7 +18,7 @@ jobs:
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Build and push Docker image
-      working-directory: ./downloader_sloniara_bot
+      working-directory: .
       run: |
         RANDOM_HASH=$(openssl rand -hex 4)
         IMAGE_TAG=catprogrammer/downloader_sloniara_bot:$RANDOM_HASH
