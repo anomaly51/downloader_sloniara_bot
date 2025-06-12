@@ -15,6 +15,9 @@ LAST_MESSAGES = deque(maxlen=5)
 async def handler(event):
     await handle_content_link(event, client, LAST_MESSAGES)
 
+    #
+    #
+
 
 async def main():
     print("Клиент запускается1")
