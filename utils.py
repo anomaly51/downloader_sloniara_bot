@@ -455,4 +455,3 @@ async def handle_content_link(event, client, LAST_MESSAGES):
             await status_message.delete()
         except Exception as e:
             print(f"Ошибка при удалении статусного сообщения: {e}")
-
