@@ -24,8 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Установка Instaloader и других библиотек
-RUN pip install --no-cache-dir telethon pytubefix pyktok instaloader playwright
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Установка Playwright и необходимых браузеров
 RUN playwright install
