@@ -85,7 +85,6 @@ async def update_readers(client, LAST_MESSAGES):
                     message = entry["message"]
                     sender_id = entry["sender_id"]
 
-                    # Handle both single messages and message lists
                     messages = message if isinstance(message, list) else [message]
 
                     for msg in messages:
