@@ -8,4 +8,5 @@ yt-dlp[default]>=2024.0.0.dev0
 gallery-dl
 playwright
 openai
+python-dotenv
 

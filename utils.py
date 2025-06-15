@@ -7,7 +7,6 @@ import json
 import traceback
 from telethon import functions
 import requests
-
 from instagram_handlers import download_instagram_content
 from tiktok_handlers import (
     download_tiktok_video,
@@ -16,10 +15,15 @@ from tiktok_handlers import (
 from youtube_handler import download_youtube_video
 from openai import OpenAI
 
-# Инициализация клиента OpenAI для работы с LLM
+# Получаем API-ключ OpenAI из переменных окружения
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    raise ValueError("Ошибка: OPENAI_API_KEY не установлен в переменных окружения")
+
+# Инициализируем клиент OpenAI
 openai_client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key="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",
+    api_key=OPENAI_API_KEY,
     default_headers={
         "HTTP-Referer": "YOUR_SITE_URL",
         "X-Title": "YOUR_APP_NAME",
@@ -454,3 +458,4 @@ async def handle_content_link(event, client, LAST_MESSAGES):
             await status_message.delete()
         except Exception as e:
             print(f"Ошибка при удалении статусного сообщения: {e}")
+
