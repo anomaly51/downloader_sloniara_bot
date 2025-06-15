@@ -321,7 +321,7 @@ async def handle_content_link(event, client, LAST_MESSAGES):
                     return
 
                 caption = (
-                    f"{sender_name}\n{url}"
+                    f"{sender_name}\n{url} test test"
                     if not video_title
                     else f"{sender_name}\n{video_title}\n{url}"
                 )
