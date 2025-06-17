@@ -30,8 +30,9 @@ API_ID = int(API_ID)
 # Создаем папку для контента
 os.makedirs("./content", exist_ok=True)
 
-# Инициализируем клиент Telegram
+# Инициализируем клиент Telegram с именем сессии из SESSION_NAME
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+
 LAST_MESSAGES = deque(maxlen=5)
 
 
@@ -45,7 +46,7 @@ async def handler(event):
 
 
 async def main():
-    print("Клиент запускается...")
+    print(f"Клиент запускается с сессией: {SESSION_NAME}.session")
     from utils import (
         update_readers,
     )  # Импорт здесь, чтобы избежать циклического импорта

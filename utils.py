@@ -309,7 +309,6 @@ async def handle_content_link(event, client, LAST_MESSAGES):
                     await status_message.delete()
                     return
 
-        # Стандартная обработка контента
         if "tiktok.com" in resolved_url:
             if "/photo/" in resolved_url:
                 photos_filename, audio_filename, video_title = (
