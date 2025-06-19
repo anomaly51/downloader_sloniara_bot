@@ -17,7 +17,9 @@ API_HASH = os.getenv("API_HASH")
 PHONE_NUMBER = os.getenv("PHONE_NUMBER")
 
 if not all([SESSION_NAME, API_ID, API_HASH, PHONE_NUMBER]):
-    print("Ошибка: Не все переменные окружения установлены. Проверь файл .env")
+    print(
+        f"Ошибка: Не все переменные окружения установлены. Проверьте файл .env.{args.env}"
+    )
     exit(1)
 
 API_ID = int(API_ID)
@@ -31,18 +33,14 @@ LAST_MESSAGES = deque(maxlen=5)
 
 @client.on(events.NewMessage(pattern=r"http[s]?://[^\s]+"))
 async def handler(event):
-    from utils import (
-        handle_content_link,
-    )
+    from utils.content_sender import handle_content_link
 
     await handle_content_link(event, client, LAST_MESSAGES)
 
 
 async def main():
     print(f"Клиент запускается с сессией: {SESSION_NAME}.session")
-    from utils import (
-        update_readers,
-    )  # Импорт здесь, чтобы избежать циклического импорта
+    from utils.message_readers import update_readers
 
     asyncio.create_task(update_readers(client, LAST_MESSAGES))
     await client.start(phone=PHONE_NUMBER)
