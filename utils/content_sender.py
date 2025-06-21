@@ -213,11 +213,20 @@ async def handle_content_link(event, client, LAST_MESSAGES):
 
         # Готовим заголовок
         title = content.get("title", "") or ""
-        caption = f"{sender_name}\n{title}\n{url}" if title else f"{sender_name}\n{url}"
 
-        # Отправляем контент
+        # ИСПРАВЛЕНИЕ: Всегда отправляем временный индикатор для длинных заголовков
+        if len(title) > 100:
+            # Для длинных заголовков используем временный индикатор
+            initial_caption = f"{sender_name}\n⏱️\n{url}"
+        else:
+            # Для коротких заголовков отправляем сразу окончательный вариант
+            initial_caption = (
+                f"{sender_name}\n{title}\n{url}" if title else f"{sender_name}\n{url}"
+            )
+
+        # Отправляем контент с временным заголовком
         message = await send_content(
-            client, event.chat_id, content, caption, sender_id, LAST_MESSAGES
+            client, event.chat_id, content, initial_caption, sender_id, LAST_MESSAGES
         )
 
         # Обновляем длинные заголовки асинхронно
