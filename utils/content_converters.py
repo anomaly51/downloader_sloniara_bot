@@ -24,7 +24,7 @@ async def get_conversion_action(user_input):
 
     try:
         response = openai_client.chat.completions.create(
-            model="deepseek/deepseek-chat-v3-0324:free",
+            model="deepseek/deepseek-chat",
             messages=[{"role": "system", "content": conversion_prompt}],
             response_format={"type": "json_object"},
         )
@@ -99,4 +99,3 @@ def convert_video_to_ogg_opus(video_path, output_path=None):
     except subprocess.CalledProcessError as e:
         print(f"Ошибка конвертации в OGG Opus: {e.stderr.decode()}")
         return None
-

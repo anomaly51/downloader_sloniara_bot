@@ -39,7 +39,7 @@ async def generate_personalized_message(
 
     try:
         response = client.completions.create(
-            model="deepseek/deepseek-chat-v3-0324:free", prompt=prompt, max_tokens=50
+            model="deepseek/deepseek-chat", prompt=prompt, max_tokens=50
         )
         message = response.choices[0].text.strip()
 
@@ -62,7 +62,7 @@ async def shorten_title(title):
 
     try:
         response = client.completions.create(
-            model="deepseek/deepseek-chat-v3-0324:free",
+            model="deepseek/deepseek-chat",
             prompt=prompt,
         )
         return response.choices[0].text.strip()[:100]
@@ -347,4 +347,3 @@ async def handle_content_link(event, client, LAST_MESSAGES):
             await status_message.delete()
         except:
             pass
-
