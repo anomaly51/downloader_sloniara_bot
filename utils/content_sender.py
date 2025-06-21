@@ -72,7 +72,7 @@ async def shorten_title(title):
 
 
 async def update_title(client, chat_id, message, original_title, url, sender_name):
-    """Сокращает заголовок и обновляет сообщение в Telegram, сохраняя список просмотров."""
+    """Сокращает заголовок и обновляет сообщение в Telegram, сохраняя список просмотров и удаляя временный индикатор."""
     try:
         shortened_title = await shorten_title(original_title)
         if isinstance(message, list):
@@ -80,12 +80,30 @@ async def update_title(client, chat_id, message, original_title, url, sender_nam
         else:
             msg = message
         current_caption = msg.text or ""  # Получаем текущую подпись
-        prefix, sep, viewers = current_caption.partition("👤:")  # Разделяем на части
-        new_prefix = f"{sender_name}\n{shortened_title}\n{url}"  # Новая часть до списка
-        if sep and viewers.strip():  # Если есть список просмотров
-            new_caption = f"{new_prefix}\n{sep}{viewers}"  # Сохраняем его
+
+        # Разделяем подпись на строки
+        lines = current_caption.split("\n")
+        if len(lines) >= 3:
+            # Первые две строки: sender_name и заголовок (или ⏱️)
+            sender_line = lines[0]
+            title_line = lines[1]
+            url_line = lines[2]
+            # Остальные строки могут содержать список просмотров
+            viewers_lines = lines[3:] if len(lines) > 3 else []
+
+            # Если вторая строка содержит ⏱️, заменяем её на shortened_title
+            if "⏱️" in title_line:
+                title_line = shortened_title
+
+            # Формируем новую подпись
+            new_caption = f"{sender_line}\n{title_line}\n{url_line}"
+            if viewers_lines:
+                viewers_part = "\n".join(viewers_lines)
+                new_caption += f"\n{viewers_part}"
         else:
-            new_caption = new_prefix  # Иначе только новая подпись
+            # Если подпись не соответствует ожидаемому формату, обновляем её
+            new_caption = f"{sender_name}\n{shortened_title}\n{url}"
+
         await msg.edit(new_caption)
     except Exception as e:
         print(f"Ошибка при редактировании сообщения: {e}")
