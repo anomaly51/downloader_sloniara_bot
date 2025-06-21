@@ -24,7 +24,7 @@ async def get_readers(client, chat_id, message_id, sender_id):
 
 
 async def update_message_caption(client, message, readers):
-    """Обновляет подпись сообщения списком прочитавших."""
+    """Обновляет подпись сообщения списком прочитавших в формате '👤: @user1, @user2, ...'."""
     try:
         original_caption = message.text or ""
         prefix, sep, existing_readers = original_caption.partition("👤:")
@@ -50,11 +50,11 @@ async def update_message_caption(client, message, readers):
             await message.edit(new_caption)
     except Exception as e:
         if "Message not modified" not in str(e):
-            print(f"Error updating caption: {e}")
+            print(f"Ошибка обновления подписи: {e}")
 
 
 async def update_readers(client, LAST_MESSAGES):
-    """Циклически обновляет список прочитавших для всех сообщений."""
+    """Циклически обновляет список прочитавших для всех сообщений каждые 10 секунд."""
     while True:
         try:
             for entry in list(LAST_MESSAGES):
@@ -78,9 +78,10 @@ async def update_readers(client, LAST_MESSAGES):
                             await update_message_caption(client, msg, current_readers)
                             entry["readers"] = current_readers
                 except Exception as e:
-                    print(f"Error processing message entry: {e}")
+                    print(f"Ошибка обработки записи сообщения: {e}")
                     continue
             await asyncio.sleep(10)
         except Exception as e:
-            print(f"Error in update_readers loop: {e}")
+            print(f"Ошибка в цикле update_readers: {e}")
             await asyncio.sleep(10)
+

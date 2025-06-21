@@ -72,21 +72,27 @@ async def shorten_title(title):
 
 
 async def update_title(client, chat_id, message, original_title, url, sender_name):
-    """Сокращает заголовок и обновляет сообщение в Telegram."""
+    """Сокращает заголовок и обновляет сообщение в Telegram, сохраняя список просмотров."""
     try:
         shortened_title = await shorten_title(original_title)
-        new_caption = f"{sender_name}\n{shortened_title}\n{url}"
-
         if isinstance(message, list):
-            await message[0].edit(new_caption)
+            msg = message[0]  # Для альбома берём первое сообщение
         else:
-            await message.edit(new_caption)
+            msg = message
+        current_caption = msg.text or ""  # Получаем текущую подпись
+        prefix, sep, viewers = current_caption.partition("👤:")  # Разделяем на части
+        new_prefix = f"{sender_name}\n{shortened_title}\n{url}"  # Новая часть до списка
+        if sep and viewers.strip():  # Если есть список просмотров
+            new_caption = f"{new_prefix}\n{sep}{viewers}"  # Сохраняем его
+        else:
+            new_caption = new_prefix  # Иначе только новая подпись
+        await msg.edit(new_caption)
     except Exception as e:
         print(f"Ошибка при редактировании сообщения: {e}")
 
 
 async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAGES):
-    """Отправляет контент в чат и добавляет в LAST_MESSAGES."""
+    """Отправляет контент в чат и добавляет в LAST_MESSAGES для отслеживания просмотров."""
     message = None
     try:
         if content["type"] == "photos":
@@ -101,15 +107,50 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
                 except OSError:
                     new_audio_path = content["audio"]
                 await client.send_file(chat_id, new_audio_path)
+            LAST_MESSAGES.append(
+                {
+                    "chat_id": chat_id,
+                    "message": message,
+                    "sender_id": sender_id,
+                    "readers": set(),
+                }
+            )
 
         elif content["type"] == "video":
             message = await client.send_file(chat_id, content["file"], caption=caption)
+            LAST_MESSAGES.append(
+                {
+                    "chat_id": chat_id,
+                    "message": message,
+                    "sender_id": sender_id,
+                    "readers": set(),
+                }
+            )
 
         elif content["type"] == "audio":
             message = await client.send_file(chat_id, content["file"], caption=caption)
+            LAST_MESSAGES.append(
+                {
+                    "chat_id": chat_id,
+                    "message": message,
+                    "sender_id": sender_id,
+                    "readers": set(),
+                }
+            )
 
         elif content["type"] == "voice":
-            message = await client.send_file(chat_id, content["file"], voice_note=True)
+            # Исправлено: добавлена подпись для голосовых сообщений
+            message = await client.send_file(
+                chat_id, content["file"], voice_note=True, caption=caption
+            )
+            LAST_MESSAGES.append(
+                {
+                    "chat_id": chat_id,
+                    "message": message,
+                    "sender_id": sender_id,
+                    "readers": set(),
+                }
+            )
 
         elif content["type"] == "mixed":
             photos = [m["file_path"] for m in content["media"] if m["type"] == "photo"]
@@ -117,9 +158,25 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
 
             if photos:
                 message = await client.send_file(chat_id, photos, caption=caption)
+                LAST_MESSAGES.append(
+                    {
+                        "chat_id": chat_id,
+                        "message": message,
+                        "sender_id": sender_id,
+                        "readers": set(),
+                    }
+                )
 
             for video in videos:
                 message = await client.send_file(chat_id, video, caption=caption)
+                LAST_MESSAGES.append(
+                    {
+                        "chat_id": chat_id,
+                        "message": message,
+                        "sender_id": sender_id,
+                        "readers": set(),
+                    }
+                )
 
             if content.get("audio"):
                 await client.send_file(chat_id, content["audio"], caption="")
@@ -214,12 +271,10 @@ async def handle_content_link(event, client, LAST_MESSAGES):
         # Готовим заголовок
         title = content.get("title", "") or ""
 
-        # ИСПРАВЛЕНИЕ: Всегда отправляем временный индикатор для длинных заголовков
+        # Всегда отправляем временный индикатор для длинных заголовков
         if len(title) > 100:
-            # Для длинных заголовков используем временный индикатор
             initial_caption = f"{sender_name}\n⏱️\n{url}"
         else:
-            # Для коротких заголовков отправляем сразу окончательный вариант
             initial_caption = (
                 f"{sender_name}\n{title}\n{url}" if title else f"{sender_name}\n{url}"
             )
@@ -237,12 +292,10 @@ async def handle_content_link(event, client, LAST_MESSAGES):
 
         # Отправляем персонализированное сообщение для тегнутого пользователя
         if tagged_user:
-            # Генерируем уникальное сообщение через LLM
             personalized_message = await generate_personalized_message(
                 sender_name, tagged_user, content["type"], instruction
             )
 
-            # Определяем ID сообщения для ответа
             if isinstance(message, list) and message:
                 message_id = message[0].id
             elif hasattr(message, "id"):
