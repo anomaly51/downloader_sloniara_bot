@@ -1,8 +1,36 @@
 import os
 import re
 import requests
+import asyncio
 from .file_utils import cleanup, sanitize_filename
 from .content_downloader import download_tiktok, download_youtube, download_instagram
+from .openai_client import get_openai_client
+
+
+async def shorten_title(title):
+    """Сокращает заголовок до 100 символов с помощью DeepSeek."""
+    client = get_openai_client()
+    prompt = f"Верни ТОЛЬКО сокращённый текст до 100 символов. ТОЛЬКО буквы и пробелы. НИКАКИХ других символов, слов, знаков, эмодзи, форматирования, комментариев или любых добавлений. Сокращай ТОЛЬКО следующий текст, ничего не придумывай и не добавляй: ==={title}==="
+    try:
+        response = client.completions.create(
+            model="deepseek/deepseek-chat-v3-0324:free",
+            prompt=prompt,
+        )
+        shortened_title = response.choices[0].text.strip()
+        return shortened_title
+    except Exception as e:
+        print(f"Ошибка при сокращении заголовка: {e}")
+        return "Ошибка при сокращении заголовка"
+
+
+async def update_title(client, chat_id, message, original_title, url, sender_name):
+    """Сокращает заголовок и обновляет сообщение в Telegram."""
+    shortened_title = await shorten_title(original_title)
+    new_caption = f"{sender_name}\n{shortened_title}\n{url}"
+    try:
+        await message.edit(new_caption)
+    except Exception as e:
+        print(f"Ошибка при редактировании сообщения: {e}")
 
 
 async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAGES):
@@ -73,6 +101,7 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
             )
         if content["audio"]:
             await client.send_file(chat_id, content["audio"], caption="")
+    return message
 
 
 def cleanup_content(content):
@@ -111,7 +140,6 @@ async def handle_content_link(event, client, LAST_MESSAGES):
         except requests.RequestException:
             resolved_url = url
 
-        # Определение платформы и вызов обработчика с помощью if-elif
         if "tiktok.com" in resolved_url:
             content = await download_tiktok(resolved_url, instruction)
         elif "instagram.com" in resolved_url:
@@ -126,19 +154,21 @@ async def handle_content_link(event, client, LAST_MESSAGES):
             await client.send_message(event.chat_id, "Не удалось скачать контент.")
             return
 
-        # Формирование подписи
-        caption = (
-            f"{sender_name}\n{url}"
-            if not content.get("title")
-            else f"{sender_name}\n{content['title']}\n{url}"
-        )
+        title = content.get("title", "")
+        if len(title) > 100:
+            caption = f"{sender_name}\n⏱️\n{url}"
+            message = await send_content(
+                client, event.chat_id, content, caption, sender_id, LAST_MESSAGES
+            )
+            asyncio.create_task(
+                update_title(client, event.chat_id, message, title, url, sender_name)
+            )
+        else:
+            caption = f"{sender_name}\n{title}\n{url}"
+            await send_content(
+                client, event.chat_id, content, caption, sender_id, LAST_MESSAGES
+            )
 
-        # Отправка контента
-        await send_content(
-            client, event.chat_id, content, caption, sender_id, LAST_MESSAGES
-        )
-
-        # Очистка
         cleanup_content(content)
 
     except Exception as e:
@@ -154,3 +184,4 @@ async def handle_content_link(event, client, LAST_MESSAGES):
             await status_message.delete()
         except Exception as e:
             print(f"Ошибка при удалении статусного сообщения: {e}")
+
