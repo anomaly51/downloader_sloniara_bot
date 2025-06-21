@@ -20,7 +20,7 @@ async def shorten_title(title):
         return shortened_title
     except Exception as e:
         print(f"Ошибка при сокращении заголовка: {e}")
-        return "Ошибка при сокращении заголовка"
+        return "audio"  # Возвращаем "audio" вместо ошибки для надёжности
 
 
 async def update_title(client, chat_id, message, original_title, url, sender_name):
@@ -28,7 +28,10 @@ async def update_title(client, chat_id, message, original_title, url, sender_nam
     shortened_title = await shorten_title(original_title)
     new_caption = f"{sender_name}\n{shortened_title}\n{url}"
     try:
-        await message.edit(new_caption)
+        if isinstance(message, list):
+            await message[0].edit(new_caption)
+        else:
+            await message.edit(new_caption)
     except Exception as e:
         print(f"Ошибка при редактировании сообщения: {e}")
 
@@ -41,10 +44,18 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
             sanitized_title = (
                 sanitize_filename(content["title"]) if content["title"] else "audio"
             )
+            # Ограничиваем длину sanitized_title до 100 символов
+            sanitized_title = sanitized_title[:100]
             new_audio_path = os.path.join(
                 os.path.dirname(content["audio"]), f"{sanitized_title}.mp3"
             )
-            os.rename(content["audio"], new_audio_path)
+            try:
+                os.rename(content["audio"], new_audio_path)
+            except OSError as e:
+                print(f"Ошибка при переименовании аудиофайла: {e}")
+                new_audio_path = content[
+                    "audio"
+                ]  # Используем оригинальный путь в случае ошибки
             await client.send_file(chat_id, new_audio_path)
         LAST_MESSAGES.append(
             {
@@ -164,7 +175,7 @@ async def handle_content_link(event, client, LAST_MESSAGES):
                 update_title(client, event.chat_id, message, title, url, sender_name)
             )
         else:
-            caption = f"{sender_name}\n{title}\n{url}"
+            caption = f"{sender_name}\n{title + '\n' if title else ''}{url}"
             await send_content(
                 client, event.chat_id, content, caption, sender_id, LAST_MESSAGES
             )
