@@ -27,18 +27,92 @@ def download_tiktok_photos_with_audio(url):
             os.path.join(temp_dir, "**", "*.json"), recursive=True
         )
         title = "No title found"
+        photo_order = []
 
         if metadata_files:
             with open(metadata_files[0], "r") as f:
                 data = json.load(f)
-                print(data)
+                print(
+                    "Metadata structure:",
+                    json.dumps(data, indent=2, ensure_ascii=False),
+                )
                 title = data.get("desc", "No title found")
-        for file in glob.glob(os.path.join(temp_dir, "**", "*"), recursive=True):
-            if os.path.isfile(file) and file.endswith((".jpg", ".mp3")):
-                shutil.move(file, os.path.join(DOWNLOAD_DIR, os.path.basename(file)))
-    photos_filename = glob.glob(os.path.join(DOWNLOAD_DIR, f"{video_id}_*.jpg"))
-    audio_filename = next(iter(glob.glob(os.path.join(DOWNLOAD_DIR, "*.mp3"))), None)
-    return photos_filename, audio_filename, title
+                # Извлекаем порядок фотографий из метаданных
+                images = None
+                if "imagePost" in data and "images" in data["imagePost"]:
+                    images = data["imagePost"]["images"]
+                elif "images" in data:
+                    images = data["images"]
+
+                if images:
+                    # Проверяем возможные ключи для URL изображения
+                    possible_keys = ["url", "imageURL", "display_url", "image_url"]
+                    for key in possible_keys:
+                        if any(key in img for img in images):
+                            if key == "imageURL":
+                                # Извлекаем первый URL из urlList
+                                photo_order = [
+                                    img[key]["urlList"][0]
+                                    for img in images
+                                    if key in img and img[key].get("urlList")
+                                ]
+                            else:
+                                photo_order = [img[key] for img in images if key in img]
+                            print(f"Using key '{key}' for photo order")
+                            break
+                    if not photo_order:
+                        print("No valid URL key found in images metadata")
+
+        # Получаем список файлов фотографий
+        photo_files = glob.glob(os.path.join(temp_dir, "**", "*.jpg"), recursive=True)
+
+        # Если есть порядок из метаданных, сортируем файлы
+        if photo_order:
+            file_map = {os.path.basename(file): file for file in photo_files}
+            sorted_files = []
+            for img_url in photo_order:
+                # Извлекаем уникальный идентификатор из URL
+                match = re.search(r"([0-9a-f]{32})~tplv-photomode-image\.jpeg", img_url)
+                if match:
+                    img_id = match.group(1)
+                    # Ищем файл, содержащий этот идентификатор в имени
+                    for filename in file_map:
+                        if img_id in filename:
+                            sorted_files.append(file_map[filename])
+                            break
+                    else:
+                        print(
+                            f"Warning: Image with ID {img_id} not found in downloaded files"
+                        )
+                else:
+                    print(f"Warning: Could not extract ID from URL {img_url}")
+            photo_files = sorted_files
+        else:
+            # Если порядка нет, сортируем по именам файлов
+            print("No photo order found, sorting by filename")
+            photo_files.sort()
+
+        # Перемещаем файлы в DOWNLOAD_DIR
+        for file in photo_files:
+            shutil.move(file, os.path.join(DOWNLOAD_DIR, os.path.basename(file)))
+
+        # Получаем итоговый список файлов в DOWNLOAD_DIR
+        photos_filename = glob.glob(os.path.join(DOWNLOAD_DIR, f"{video_id}_*.jpg"))
+
+        # Сортируем photos_filename в соответствии с photo_files
+        photo_files_basenames = [os.path.basename(f) for f in photo_files]
+        photos_filename.sort(
+            key=lambda x: photo_files_basenames.index(os.path.basename(x))
+            if os.path.basename(x) in photo_files_basenames
+            else -1
+        )
+
+        # Получаем аудио файл
+        audio_filename = next(
+            iter(glob.glob(os.path.join(DOWNLOAD_DIR, "*.mp3"))), None
+        )
+
+        return photos_filename, audio_filename, title
 
 
 def download_tiktok_video(url):
@@ -91,7 +165,7 @@ def download_tiktok_video(url):
 
 
 if __name__ == "__main__":
-    photo_url = "https://www.tiktok.com/@goroh_official0/photo/7510602525402238213?_d=secCgYIASAHKAESPgo8Wy6w4r6Or9akwlDB29H4gBWtnOZeKtb5%2FnT%2Bovs3B6iaajlOetQ3taNoWVgb4YUWwoqzS%2BOPI7RAH1tLGgA%3D&_r=1&_svg=1&aweme_type=150&checksum=e2688f32c5398bf05137e58c26ac36f4993ae7be4a2f268f85568bb7626b1ed0&cover_exp=v1&link_reflow_popup_iteration_sharer=%7B%22click_empty_to_play%22%3A1%2C%22dynamic_cover%22%3A1%2C%22follow_to_play_duration%22%3A-1.0%2C%22profile_clickable%22%3A1%7D&pic_cnt=9&preview_pb=0&sec_user_id=MS4wLjABAAAA0UNIbWMA5O1qeAB1n4lIT4J3rmjRUdz1yS-0XFIQuBJFgsPY6CYVCsuOFHRmNmou&share_app_id=1233&share_item_id=7510602525402238213&share_link_id=874b2cc8-801f-4f44-85a0-5e476676e5e6&share_scene=11&sharer_language=ru&social_share_type=14&source=h5_m&timestamp=1748905830&u_code=dja2el4a8dle15&ug_btm=b2001&ug_photo_idx=0&ugbiz_name=UNKNOWN&user_id=6978488395807032325&utm_campaign=client_share&utm_medium=android&utm_source=copy"
+    photo_url = "https://www.tiktok.com/@goroh_official0/photo/7510602525402238213?_d=secCgYIASAHKAESPgo8Wy6w4r6Or9akwlDB29H4gBWtnOZeKtb5%2FnT%2Bovs3B6iaajlOetQ3taNoWVgb4YUWwoqzS%2BOPI7RAH1tLGgA%3D&_r=1&_svg=1&aweme_type=150&checksum=e2688f32c5398bf05137e58c26ac36f4993ae7be4a2f268f85568bb7626b1ed0&cover_exp=v1&link_reflow_popup_iteration_sharer=%7B%22click_empty_to_play%22%3A1%2C%22dynamic_cover%22%3A1%2C%22follow_to_play_duration%22%3A-1.0%2C%22profile_clickable%22%3A1%7D&pic_cnt=9&preview_pb=0&sec_user_id=MS4wLjABAAAA0UNIbWMA5O1qeAB1n4lIT4J3rmjRUdz1yS-0XFIQuBJFgsPY6CYVCsuOFHRmNmou&share_app_id=1233&share_item_id=7510602525402238213&share_link_id=874b2cc8-801f-4f44-85a0-5e476676e5e6&share_scene=11&sharer_language=ru&social_share_type=14&source=h5_m×tamp=1748905830&u_code=dja2el4a8dle15&ug_btm=b2001&ug_photo_idx=0&ugbiz_name=UNKNOWN&user_id=6978488395807032325&utm_campaign=client_share&utm_medium=android&utm_source=copy"
     video_url = "https://vm.tiktok.com/ZMBrKn5CV"
     print("Downloading photos and audio...")
     photos_filename, audio_filename, photo_title = download_tiktok_photos_with_audio(
@@ -104,3 +178,4 @@ if __name__ == "__main__":
     video_filename, title = download_tiktok_video(video_url)
     print("Video:", video_filename)
     print("Video Title:", title)
+
