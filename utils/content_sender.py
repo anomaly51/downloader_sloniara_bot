@@ -26,8 +26,8 @@ async def generate_personalized_message(
 
     prompt = (
         f"Пользователь {sender_name} отправил {content_desc} и отметил @{tagged_user}. "
-        f"Сгенерируй короткое (до 50 символов), максимально токсичное сообщение с грубостями для @{tagged_user}, "
-        f"чтобы привлечь его внимание к этому контенту. Сообщение должно быть неформальным, передавать вайб и смысл "
+        f"Сгенерируй короткое (до 50 символов), Kоксичное сообщение с грубостями для @{tagged_user}, "
+        f"чтобы привлечь его внимание к этому контенту. Сообщение должно быть неформальным, передавать вайб и смысл такой как в инструкции"
         f"инструкции, перефразируя их максимально близко к оригиналу. "
         f"\n\nКонтекст инструкции: {instruction[:200] if instruction else 'нет инструкции'}"
         f"\n\nПример: 'Эй @user, смотри, твой кумир - лох позорный!'"
@@ -37,7 +37,7 @@ async def generate_personalized_message(
         f"\n3. Начинай с @{tagged_user}"
         f"\n4. Учитывай тип контента и вайб инструкции"
         f"\n5. Сохраняй смысл и тон инструкции, перефразируя"
-        f"\n6. Отправь только текст обращения"
+        f"\n6. Отправь только текст обращения. Не пиши ничего лишнего"
     )
 
     try:
@@ -277,8 +277,8 @@ async def handle_content_link(event, client, LAST_MESSAGES):
             content = await download_tiktok(resolved_url, conversion_instruction)
         elif "instagram.com" in resolved_url:
             content = await download_instagram(resolved_url, conversion_instruction)
-        elif "youtube.com" in resolved_url or "youtu.be" in resolved_url:
-            content = await download_youtube(resolved_url, conversion_instruction)
+        # elif "youtube.com" in resolved_url or "youtu.be" in resolved_url:
+        # content = await download_youtube(resolved_url, conversion_instruction)
         else:
             await client.send_message(event.chat_id, "Платформа не поддерживается.")
             await status_message.delete()
