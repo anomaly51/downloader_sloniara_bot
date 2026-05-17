@@ -346,23 +346,7 @@ def shorten_tiktok_url(original_url, resolved_url):
 
 
 def format_caption_link(display_url):
-    """Возвращает короткую URL-похожую строку для подписи."""
-    parsed = urlparse(display_url)
-    if "tiktok.com" in parsed.netloc.lower():
-        canonical_match = re.search(
-            r"^/(@[^/]+)/(video|photo)/(\d+)", parsed.path
-        )
-        if canonical_match:
-            _, content_type, content_id = canonical_match.groups()
-            visible_url = f"tiktok.com/{content_type}/{content_id}"
-        else:
-            visible_url = f"{parsed.netloc}{parsed.path}".rstrip("/")
-
-        return (
-            f'<a href="{escape(display_url, quote=True)}">'
-            f"{escape(visible_url)}</a>"
-        )
-
+    """Возвращает обычную видимую ссылку без скрытой HTML-гиперссылки."""
     return escape(display_url)
 
 

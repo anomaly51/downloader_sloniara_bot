@@ -1,4 +1,5 @@
 import asyncio
+from html import escape
 from telethon import functions
 
 
@@ -48,8 +49,8 @@ async def update_message_caption(client, message, readers):
 
         if new_normalized != original_normalized and message.id:
             await message.edit(
-                new_caption,
-                formatting_entities=message.entities or None,
+                escape(new_caption),
+                parse_mode="html",
             )
     except Exception as e:
         if "Message not modified" not in str(e):
