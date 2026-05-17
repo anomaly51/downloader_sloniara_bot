@@ -1,0 +1,26 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: downloader-sloniara-bot:local
+    container_name: downloader-sloniara-bot
+    init: true
+    restart: unless-stopped
+    env_file:
+      - .env.${APP_ENV:-prod}
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      PYTHONUNBUFFERED: "1"
+      PROXY_DOWNLOADER_BOT: ${PROXY_DOWNLOADER_BOT:-TTPapaBot}
+      PROXY_DOWNLOADER_TIMEOUT: ${PROXY_DOWNLOADER_TIMEOUT:-120}
+      PROXY_AUTO_JOIN_SPONSORS: ${PROXY_AUTO_JOIN_SPONSORS:-true}
+      PROXY_DEBUG_LOG: ${PROXY_DEBUG_LOG:-/app/logs/proxy_bot_downloader.log}
+    command: ["python", "main.py", "--env", "${APP_ENV:-prod}"]
+    volumes:
+      - ./content:/app/content
+      - ./downloads:/app/downloads
+      - ./logs:/app/logs
+      - ./dev_user.session:/app/dev_user.session
+      - ./prod_user.session:/app/prod_user.session
+      - ./user.session:/app/user.session

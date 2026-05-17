@@ -1,3 +1,6 @@
 venv
 .aider*
 content
+logs/
+__pycache__/
+*.py[cod]

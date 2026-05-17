@@ -47,7 +47,10 @@ async def update_message_caption(client, message, readers):
         new_normalized = " ".join(new_caption.strip().split())
 
         if new_normalized != original_normalized and message.id:
-            await message.edit(new_caption)
+            await message.edit(
+                new_caption,
+                formatting_entities=message.entities or None,
+            )
     except Exception as e:
         if "Message not modified" not in str(e):
             print(f"Ошибка обновления подписи: {e}")
@@ -84,4 +87,3 @@ async def update_readers(client, LAST_MESSAGES):
         except Exception as e:
             print(f"Ошибка в цикле update_readers: {e}")
             await asyncio.sleep(10)
-

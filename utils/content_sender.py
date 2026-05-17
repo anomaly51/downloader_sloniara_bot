@@ -1,11 +1,19 @@
 import os
 import re
-import requests
 import asyncio
 import traceback
+from html import escape
+from urllib.parse import urlparse, urlunparse
 from .file_utils import cleanup, sanitize_filename
-from .content_downloader import download_tiktok, download_youtube, download_instagram
+from .content_converters import convert_video_to_mp3, convert_video_to_ogg_opus
 from .openai_client import get_openai_client
+from .proxy_bot_downloader import (
+    download_via_proxy_bot,
+    get_proxy_debug_log_path,
+    is_proxy_bot_username,
+)
+
+SEND_CONTENT_TIMEOUT = int(os.getenv("SEND_CONTENT_TIMEOUT", "180"))
 
 
 async def generate_personalized_message(
@@ -74,7 +82,9 @@ async def shorten_title(title):
         return title[:100]
 
 
-async def update_title(client, chat_id, message, original_title, url, sender_name):
+async def update_title(
+    client, chat_id, message, original_title, caption_link, sender_name
+):
     """Сокращает заголовок и обновляет сообщение в Telegram, сохраняя список просмотров и удаляя временный индикатор."""
     try:
         shortened_title = await shorten_title(original_title)
@@ -90,7 +100,6 @@ async def update_title(client, chat_id, message, original_title, url, sender_nam
             # Первые две строки: sender_name и заголовок (или ⏱️)
             sender_line = lines[0]
             title_line = lines[1]
-            url_line = lines[2]
             # Остальные строки могут содержать список просмотров
             viewers_lines = lines[3:] if len(lines) > 3 else []
 
@@ -99,15 +108,19 @@ async def update_title(client, chat_id, message, original_title, url, sender_nam
                 title_line = shortened_title
 
             # Формируем новую подпись
-            new_caption = f"{sender_line}\n{title_line}\n{url_line}"
+            new_caption = (
+                f"{escape(sender_line)}\n{escape(title_line)}\n{caption_link}"
+            )
             if viewers_lines:
-                viewers_part = "\n".join(viewers_lines)
+                viewers_part = "\n".join(escape(line) for line in viewers_lines)
                 new_caption += f"\n{viewers_part}"
         else:
             # Если подпись не соответствует ожидаемому формату, обновляем её
-            new_caption = f"{sender_name}\n{shortened_title}\n{url}"
+            new_caption = (
+                f"{escape(sender_name)}\n{escape(shortened_title)}\n{caption_link}"
+            )
 
-        await msg.edit(new_caption)
+        await msg.edit(new_caption, parse_mode="html")
     except Exception as e:
         print(f"Ошибка при редактировании сообщения: {e}")
 
@@ -117,7 +130,10 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
     message = None
     try:
         if content["type"] == "photos":
-            message = await client.send_file(chat_id, content["files"], caption=caption)
+            print(f"Отправляю photos в чат {chat_id}")
+            message = await client.send_file(
+                chat_id, content["files"], caption=caption, parse_mode="html"
+            )
             if content.get("audio"):
                 sanitized_title = sanitize_filename(content.get("title", "audio"))[:100]
                 new_audio_path = os.path.join(
@@ -138,7 +154,10 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
             )
 
         elif content["type"] == "video":
-            message = await client.send_file(chat_id, content["file"], caption=caption)
+            print(f"Отправляю video в чат {chat_id}: {content.get('file')}")
+            message = await client.send_file(
+                chat_id, content["file"], caption=caption, parse_mode="html"
+            )
             LAST_MESSAGES.append(
                 {
                     "chat_id": chat_id,
@@ -149,7 +168,10 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
             )
 
         elif content["type"] == "audio":
-            message = await client.send_file(chat_id, content["file"], caption=caption)
+            print(f"Отправляю audio в чат {chat_id}: {content.get('file')}")
+            message = await client.send_file(
+                chat_id, content["file"], caption=caption, parse_mode="html"
+            )
             LAST_MESSAGES.append(
                 {
                     "chat_id": chat_id,
@@ -161,8 +183,30 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
 
         elif content["type"] == "voice":
             # Исправлено: добавлена подпись для голосовых сообщений
+            print(f"Отправляю voice в чат {chat_id}: {content.get('file')}")
             message = await client.send_file(
-                chat_id, content["file"], voice_note=True, caption=caption
+                chat_id,
+                content["file"],
+                voice_note=True,
+                caption=caption,
+                parse_mode="html",
+            )
+            LAST_MESSAGES.append(
+                {
+                    "chat_id": chat_id,
+                    "message": message,
+                    "sender_id": sender_id,
+                    "readers": set(),
+                }
+            )
+
+        elif content["type"] == "telegram_media":
+            print(
+                "Отправляю telegram_media в чат "
+                f"{chat_id}: {content.get('source_content_type')}"
+            )
+            message = await client.send_file(
+                chat_id, content["media"], caption=caption, parse_mode="html"
             )
             LAST_MESSAGES.append(
                 {
@@ -178,7 +222,9 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
             videos = [m["file_path"] for m in content["media"] if m["type"] == "video"]
 
             if photos:
-                message = await client.send_file(chat_id, photos, caption=caption)
+                message = await client.send_file(
+                    chat_id, photos, caption=caption, parse_mode="html"
+                )
                 LAST_MESSAGES.append(
                     {
                         "chat_id": chat_id,
@@ -189,7 +235,9 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
                 )
 
             for video in videos:
-                message = await client.send_file(chat_id, video, caption=caption)
+                message = await client.send_file(
+                    chat_id, video, caption=caption, parse_mode="html"
+                )
                 LAST_MESSAGES.append(
                     {
                         "chat_id": chat_id,
@@ -202,11 +250,40 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
             if content.get("audio"):
                 await client.send_file(chat_id, content["audio"], caption="")
 
+        print(f"Контент отправлен в чат {chat_id}")
         return message
 
     except Exception as e:
         print(f"Ошибка при отправке контента: {e}")
         raise
+
+
+def apply_conversion_if_needed(content, conversion_instruction):
+    if not conversion_instruction or not content or content.get("type") != "video":
+        return content
+
+    source_file = content.get("file")
+    if not source_file:
+        return content
+
+    if conversion_instruction == "mp3":
+        output_path = convert_video_to_mp3(source_file)
+        if output_path:
+            return {
+                "type": "audio",
+                "file": output_path,
+                "title": content.get("title", ""),
+            }
+    elif conversion_instruction == "voice":
+        output_path = convert_video_to_ogg_opus(source_file)
+        if output_path:
+            return {
+                "type": "voice",
+                "file": output_path,
+                "title": content.get("title", ""),
+            }
+
+    return content
 
 
 def cleanup_content(content):
@@ -229,10 +306,91 @@ def cleanup_content(content):
         print(f"Ошибка при очистке файлов: {e}")
 
 
+def shorten_tiktok_url(original_url, resolved_url):
+    """Возвращает короткую ссылку TikTok без tracking-параметров."""
+    source_url = resolved_url or original_url
+    parsed = urlparse(source_url)
+    host = parsed.netloc.lower()
+
+    if "tiktok.com" not in host:
+        return original_url
+
+    canonical_match = re.search(
+        r"^/(@[^/]+)/(video|photo)/(\d+)", parsed.path
+    )
+    if canonical_match:
+        user, content_type, content_id = canonical_match.groups()
+        return f"https://www.tiktok.com/{user}/{content_type}/{content_id}"
+
+    # Keep TikTok short domains short, just remove query/fragment noise.
+    original_parsed = urlparse(original_url)
+    if "tiktok.com" in original_parsed.netloc.lower():
+        clean_path = original_parsed.path.rstrip("/")
+        if clean_path:
+            return urlunparse(
+                (
+                    original_parsed.scheme or "https",
+                    original_parsed.netloc,
+                    clean_path,
+                    "",
+                    "",
+                    "",
+                )
+            )
+
+    clean_path = parsed.path.rstrip("/")
+    if clean_path:
+        return urlunparse(("https", parsed.netloc, clean_path, "", "", ""))
+
+    return original_url
+
+
+def format_caption_link(display_url):
+    """Возвращает короткую URL-похожую строку для подписи."""
+    parsed = urlparse(display_url)
+    if "tiktok.com" in parsed.netloc.lower():
+        canonical_match = re.search(
+            r"^/(@[^/]+)/(video|photo)/(\d+)", parsed.path
+        )
+        if canonical_match:
+            _, content_type, content_id = canonical_match.groups()
+            visible_url = f"tiktok.com/{content_type}/{content_id}"
+        else:
+            visible_url = f"{parsed.netloc}{parsed.path}".rstrip("/")
+
+        return (
+            f'<a href="{escape(display_url, quote=True)}">'
+            f"{escape(visible_url)}</a>"
+        )
+
+    return escape(display_url)
+
+
+def is_supported_content_url(url):
+    host = urlparse(url).netloc.lower()
+    supported_hosts = (
+        "tiktok.com",
+        "youtube.com",
+        "youtu.be",
+        "instagram.com",
+    )
+
+    return any(
+        host == domain or host.endswith(f".{domain}") for domain in supported_hosts
+    )
+
+
 async def handle_content_link(event, client, LAST_MESSAGES):
     """Основная функция обработки ссылки на контент."""
+    chat = await event.get_chat()
+    if is_proxy_bot_username(getattr(chat, "username", "")):
+        return
+
     text = event.message.raw_text
     sender = await event.get_sender()
+    if is_proxy_bot_username(getattr(sender, "username", "")):
+        return
+
     sender_id = sender.id
     sender_name = f"@{sender.username}" if sender.username else sender.first_name
     status_message = await client.send_message(event.chat_id, "🕰️")
@@ -246,6 +404,11 @@ async def handle_content_link(event, client, LAST_MESSAGES):
         url = urls[0]
         instruction = text.replace(url, "").strip()
         print(f"Инструкция: {instruction}")
+
+        if not is_supported_content_url(url):
+            await client.send_message(event.chat_id, "Платформа не поддерживается.")
+            await status_message.delete()
+            return
 
         # Извлекаем тегнутых пользователей
         tagged_users = re.findall(r"@([\w\d_]+)", instruction)
@@ -266,26 +429,23 @@ async def handle_content_link(event, client, LAST_MESSAGES):
 
         print(f"Команда конвертации: {conversion_instruction}")
 
-        try:
-            response = requests.head(url, allow_redirects=True, timeout=10)
-            resolved_url = response.url
-        except requests.RequestException:
-            resolved_url = url
+        display_url = shorten_tiktok_url(url, url)
+        caption_link = format_caption_link(display_url)
 
-        # Скачиваем контент
-        if "tiktok.com" in resolved_url:
-            content = await download_tiktok(resolved_url, conversion_instruction)
-        elif "instagram.com" in resolved_url:
-            content = await download_instagram(resolved_url, conversion_instruction)
-        # elif "youtube.com" in resolved_url or "youtu.be" in resolved_url:
-        # content = await download_youtube(resolved_url, conversion_instruction)
-        else:
-            await client.send_message(event.chat_id, "Платформа не поддерживается.")
-            await status_message.delete()
-            return
+        content = await download_via_proxy_bot(
+            client,
+            url,
+            reason="proxy-only downloader",
+            download_media=bool(conversion_instruction),
+        )
+        content = apply_conversion_if_needed(content, conversion_instruction)
 
         if not content:
             await client.send_message(event.chat_id, "Не удалось скачать контент.")
+            print(
+                "Подробности fallback-прокси: "
+                f"{get_proxy_debug_log_path()}"
+            )
             await status_message.delete()
             return
 
@@ -294,21 +454,33 @@ async def handle_content_link(event, client, LAST_MESSAGES):
 
         # Всегда отправляем временный индикатор для длинных заголовков
         if len(title) > 200:
-            initial_caption = f"{sender_name}\n⏱️\n{url}"
+            initial_caption = f"{escape(sender_name)}\n⏱️\n{caption_link}"
         else:
             initial_caption = (
-                f"{sender_name}\n{title}\n{url}" if title else f"{sender_name}\n{url}"
+                f"{escape(sender_name)}\n{escape(title)}\n{caption_link}"
+                if title
+                else f"{escape(sender_name)}\n{caption_link}"
             )
 
         # Отправляем контент с временным заголовком
-        message = await send_content(
-            client, event.chat_id, content, initial_caption, sender_id, LAST_MESSAGES
+        message = await asyncio.wait_for(
+            send_content(
+                client,
+                event.chat_id,
+                content,
+                initial_caption,
+                sender_id,
+                LAST_MESSAGES,
+            ),
+            timeout=SEND_CONTENT_TIMEOUT,
         )
 
         # Обновляем длинные заголовки асинхронно
         if len(title) > 200:
             asyncio.create_task(
-                update_title(client, event.chat_id, message, title, url, sender_name)
+                update_title(
+                    client, event.chat_id, message, title, caption_link, sender_name
+                )
             )
 
         # Отправляем персонализированное сообщение для тегнутого пользователя

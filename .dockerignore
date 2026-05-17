@@ -1,0 +1,17 @@
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.v4/
+.DS_Store
+.env*
+.git/
+.github/
+__pycache__/
+*.py[cod]
+*-cookies.txt
+*.session
+*.session-journal
+content/
+downloads/
+logs/
+venv/
+video_data.csv

@@ -7,8 +7,22 @@ pip install -r requirements.txt
 Run the bot:
 python main.py
 
-docker buildx build --platform linux/amd64 -t catprogrammer/telegram-bot:latest --push .
-docker build -t catprogrammer/downloader_sloniara_bot:latest --push .
+Run with Docker Compose:
+docker compose up -d --build
 
+View logs:
+docker compose logs -f bot
 
+View proxy downloader debug:
+tail -f logs/proxy_bot_downloader.log
 
+Proxy fallback auto-joins Telegram sponsor channels shown by the proxy bot by default.
+Disable it with:
+PROXY_AUTO_JOIN_SPONSORS=false docker compose up -d
+
+Run another environment:
+APP_ENV=dev docker compose up -d --build
+
+CI/CD:
+push to `main` builds the Docker image in GitHub Actions, pushes it to Harbor,
+and Flux updates the workload cluster automatically.

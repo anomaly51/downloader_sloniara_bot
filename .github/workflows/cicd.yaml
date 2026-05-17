@@ -1,49 +1,53 @@
-name: CI/CD Pipeline
+name: Build and Push
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  HARBOR_REGISTRY: harbor.api-api-api.com
+  HARBOR_PROJECT: downloader-sloniara-bot
+  IMAGE_NAME: bot
 
 jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: anomaly51-runner
     steps:
-    - name: Checkout Python repository
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Login to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Prepare image metadata
+        run: |
+          IMAGE_TAG="main-${GITHUB_RUN_NUMBER}-${GITHUB_SHA}"
+          IMAGE_REF="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> "$GITHUB_ENV"
+          echo "IMAGE_REF=${IMAGE_REF}" >> "$GITHUB_ENV"
 
-    - name: Build and push Docker image
-      working-directory: .
-      run: |
-        RANDOM_HASH=$(openssl rand -hex 4)
-        IMAGE_TAG=catprogrammer/downloader_sloniara_bot:$RANDOM_HASH
-        docker build -t $IMAGE_TAG .
-        docker push $IMAGE_TAG
-        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+      - name: Login to Harbor
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || 'admin' }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || 'admin' }}
+        run: |
+          echo "$HARBOR_PASSWORD" | docker login "$HARBOR_REGISTRY" \
+            --username "$HARBOR_USERNAME" \
+            --password-stdin
 
-    - name: Checkout DevOps repository
-      uses: actions/checkout@v4
-      with:
-        repository: catdevdev/fast-devops
-        ref: main
-        token: ${{ secrets.DEVOPS_REPO_TOKEN }}
+      - name: Ensure Harbor project exists
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || 'admin' }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || 'admin' }}
+        run: |
+          curl -fsS -u "$HARBOR_USERNAME:$HARBOR_PASSWORD" \
+            -H "Content-Type: application/json" \
+            -X POST "https://${HARBOR_REGISTRY}/api/v2.0/projects" \
+            -d "{\"project_name\":\"${HARBOR_PROJECT}\",\"public\":false}" \
+            || true
 
-    - name: Update Helm chart
-      working-directory: ./proxmox-infra/argocd-terraform/envs/dev/argocd-downloader-sloniara-bot/k8s
-      run: |
-        CHART_PATH="values.yaml"
-        sed -i "/^\s*repository:/s|:.*|: catprogrammer/downloader_sloniara_bot|" $CHART_PATH
-        sed -i "/^\s*tag:/s|:.*|: ${IMAGE_TAG##*:}|" $CHART_PATH
-
-    - name: Commit and push changes
-      run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "actions@github.com"
-        git add .
-        git commit -m "Update image to ${{ env.IMAGE_TAG }}"
-        git push
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE_REF }}
