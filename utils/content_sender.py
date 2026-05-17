@@ -2,7 +2,7 @@ import os
 import re
 import asyncio
 import traceback
-from html import escape
+from html import escape, unescape
 from urllib.parse import urlparse, urlunparse
 from .file_utils import cleanup, sanitize_filename
 from .content_converters import convert_video_to_mp3, convert_video_to_ogg_opus
@@ -12,6 +12,7 @@ from .proxy_bot_downloader import (
     get_proxy_debug_log_path,
     is_proxy_bot_username,
 )
+from .message_readers import register_tracked_message, update_tracked_base_caption
 
 SEND_CONTENT_TIMEOUT = int(os.getenv("SEND_CONTENT_TIMEOUT", "180"))
 
@@ -83,7 +84,7 @@ async def shorten_title(title):
 
 
 async def update_title(
-    client, chat_id, message, original_title, caption_link, sender_name
+    client, chat_id, message, original_title, caption_link, sender_name, LAST_MESSAGES
 ):
     """Сокращает заголовок и обновляет сообщение в Telegram, сохраняя список просмотров и удаляя временный индикатор."""
     try:
@@ -108,6 +109,7 @@ async def update_title(
                 title_line = shortened_title
 
             # Формируем новую подпись
+            base_caption = f"{sender_line}\n{title_line}\n{unescape(caption_link)}"
             new_caption = (
                 f"{escape(sender_line)}\n{escape(title_line)}\n{caption_link}"
             )
@@ -116,11 +118,13 @@ async def update_title(
                 new_caption += f"\n{viewers_part}"
         else:
             # Если подпись не соответствует ожидаемому формату, обновляем её
+            base_caption = f"{sender_name}\n{shortened_title}\n{unescape(caption_link)}"
             new_caption = (
                 f"{escape(sender_name)}\n{escape(shortened_title)}\n{caption_link}"
             )
 
         await msg.edit(new_caption, parse_mode="html")
+        update_tracked_base_caption(LAST_MESSAGES, message, base_caption)
     except Exception as e:
         print(f"Ошибка при редактировании сообщения: {e}")
 
@@ -144,13 +148,8 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
                 except OSError:
                     new_audio_path = content["audio"]
                 await client.send_file(chat_id, new_audio_path)
-            LAST_MESSAGES.append(
-                {
-                    "chat_id": chat_id,
-                    "message": message,
-                    "sender_id": sender_id,
-                    "readers": set(),
-                }
+            register_tracked_message(
+                LAST_MESSAGES, chat_id, message, sender_id, caption
             )
 
         elif content["type"] == "video":
@@ -158,13 +157,8 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
             message = await client.send_file(
                 chat_id, content["file"], caption=caption, parse_mode="html"
             )
-            LAST_MESSAGES.append(
-                {
-                    "chat_id": chat_id,
-                    "message": message,
-                    "sender_id": sender_id,
-                    "readers": set(),
-                }
+            register_tracked_message(
+                LAST_MESSAGES, chat_id, message, sender_id, caption
             )
 
         elif content["type"] == "audio":
@@ -172,13 +166,8 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
             message = await client.send_file(
                 chat_id, content["file"], caption=caption, parse_mode="html"
             )
-            LAST_MESSAGES.append(
-                {
-                    "chat_id": chat_id,
-                    "message": message,
-                    "sender_id": sender_id,
-                    "readers": set(),
-                }
+            register_tracked_message(
+                LAST_MESSAGES, chat_id, message, sender_id, caption
             )
 
         elif content["type"] == "voice":
@@ -191,13 +180,8 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
                 caption=caption,
                 parse_mode="html",
             )
-            LAST_MESSAGES.append(
-                {
-                    "chat_id": chat_id,
-                    "message": message,
-                    "sender_id": sender_id,
-                    "readers": set(),
-                }
+            register_tracked_message(
+                LAST_MESSAGES, chat_id, message, sender_id, caption
             )
 
         elif content["type"] == "telegram_media":
@@ -208,13 +192,8 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
             message = await client.send_file(
                 chat_id, content["media"], caption=caption, parse_mode="html"
             )
-            LAST_MESSAGES.append(
-                {
-                    "chat_id": chat_id,
-                    "message": message,
-                    "sender_id": sender_id,
-                    "readers": set(),
-                }
+            register_tracked_message(
+                LAST_MESSAGES, chat_id, message, sender_id, caption
             )
 
         elif content["type"] == "mixed":
@@ -225,26 +204,16 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
                 message = await client.send_file(
                     chat_id, photos, caption=caption, parse_mode="html"
                 )
-                LAST_MESSAGES.append(
-                    {
-                        "chat_id": chat_id,
-                        "message": message,
-                        "sender_id": sender_id,
-                        "readers": set(),
-                    }
+                register_tracked_message(
+                    LAST_MESSAGES, chat_id, message, sender_id, caption
                 )
 
             for video in videos:
                 message = await client.send_file(
                     chat_id, video, caption=caption, parse_mode="html"
                 )
-                LAST_MESSAGES.append(
-                    {
-                        "chat_id": chat_id,
-                        "message": message,
-                        "sender_id": sender_id,
-                        "readers": set(),
-                    }
+                register_tracked_message(
+                    LAST_MESSAGES, chat_id, message, sender_id, caption
                 )
 
             if content.get("audio"):
@@ -463,7 +432,13 @@ async def handle_content_link(event, client, LAST_MESSAGES):
         if len(title) > 200:
             asyncio.create_task(
                 update_title(
-                    client, event.chat_id, message, title, caption_link, sender_name
+                    client,
+                    event.chat_id,
+                    message,
+                    title,
+                    caption_link,
+                    sender_name,
+                    LAST_MESSAGES,
                 )
             )
 

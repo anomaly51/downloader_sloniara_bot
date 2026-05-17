@@ -29,7 +29,8 @@ os.makedirs("./content", exist_ok=True)
 
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 
-LAST_MESSAGES = deque(maxlen=5)
+READERS_TRACK_LIMIT = int(os.getenv("READERS_TRACK_LIMIT", "50"))
+LAST_MESSAGES = deque(maxlen=READERS_TRACK_LIMIT)
 
 
 @client.on(events.NewMessage)
@@ -52,8 +53,8 @@ async def main():
     print(f"Клиент запускается с сессией: {SESSION_NAME}.session")
     from utils.message_readers import update_readers
 
-    asyncio.create_task(update_readers(client, LAST_MESSAGES))
     await client.start(phone=PHONE_NUMBER)
+    asyncio.create_task(update_readers(client, LAST_MESSAGES))
     print("Клиент запущен. Ожидаю сообщения...")
     await client.run_until_disconnected()
 
