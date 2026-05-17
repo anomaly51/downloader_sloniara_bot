@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from telethon import TelegramClient, events
 from collections import deque
 from dotenv import load_dotenv
@@ -31,10 +32,19 @@ client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 LAST_MESSAGES = deque(maxlen=5)
 
 
-@client.on(events.NewMessage(pattern=r"http[s]?://[^\s]+"))
+@client.on(events.NewMessage)
 async def handler(event):
     from utils.content_sender import handle_content_link
 
+    text = event.message.raw_text or ""
+    urls = re.findall(r"https?://\S+", text)
+    if not urls:
+        return
+
+    print(
+        "Сообщение со ссылкой: "
+        f"chat_id={event.chat_id}, sender_id={event.sender_id}, urls={len(urls)}"
+    )
     await handle_content_link(event, client, LAST_MESSAGES)
 
 
@@ -50,4 +60,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
