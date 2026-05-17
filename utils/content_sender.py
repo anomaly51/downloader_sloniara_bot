@@ -92,7 +92,7 @@ async def update_title(
             msg = message[0]  # Для альбома берём первое сообщение
         else:
             msg = message
-        current_caption = msg.text or ""  # Получаем текущую подпись
+        current_caption = msg.raw_text or ""  # Получаем подпись без markdown/entities
 
         # Разделяем подпись на строки
         lines = current_caption.split("\n")

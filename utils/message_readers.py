@@ -27,7 +27,7 @@ async def get_readers(client, chat_id, message_id, sender_id):
 async def update_message_caption(client, message, readers):
     """Обновляет подпись сообщения списком прочитавших в формате '👤: @user1, @user2, ...'."""
     try:
-        original_caption = message.text or ""
+        original_caption = message.raw_text or ""
         prefix, sep, existing_readers = original_caption.partition("👤:")
         prefix = prefix.rstrip("\n").strip()
 
