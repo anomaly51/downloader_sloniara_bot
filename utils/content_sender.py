@@ -419,10 +419,6 @@ async def handle_content_link(event, client, LAST_MESSAGES):
                 else f"{escape(sender_name)}\n{caption_link}"
             )
 
-        if status_message:
-            await status_message.delete()
-            status_message = None
-
         # Отправляем контент с временным заголовком
         message = await asyncio.wait_for(
             send_content(

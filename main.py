@@ -37,7 +37,13 @@ LAST_MESSAGES = deque(maxlen=READERS_TRACK_LIMIT)
 async def handler(event):
     from utils.content_sender import handle_content_link
 
+    if event.out:
+        return
+
     text = event.message.raw_text or ""
+    if text.strip() == "🕰️":
+        return
+
     urls = re.findall(r"https?://\S+", text)
     if not urls:
         return
