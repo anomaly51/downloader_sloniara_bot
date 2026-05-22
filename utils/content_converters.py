@@ -50,13 +50,22 @@ async def get_conversion_action(user_input):
         return None
 
 
+def _ffmpeg_executable():
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return os.getenv("FFMPEG_BINARY", "ffmpeg")
+
+
 def convert_video_to_mp3(video_path, output_path=None):
     """Конвертирует видео в MP3."""
     if output_path is None:
         output_path = os.path.splitext(video_path)[0] + ".mp3"
     try:
         command = [
-            "ffmpeg",
+            _ffmpeg_executable(),
             "-i",
             video_path,
             "-q:a",
@@ -81,7 +90,7 @@ def convert_video_to_ogg_opus(video_path, output_path=None):
         output_path = os.path.splitext(video_path)[0] + ".ogg"
     try:
         command = [
-            "ffmpeg",
+            _ffmpeg_executable(),
             "-i",
             video_path,
             "-c:a",
