@@ -21,6 +21,7 @@ PROXY_AUTO_JOIN_SPONSORS = (
     os.getenv("PROXY_AUTO_JOIN_SPONSORS", "true").strip().lower()
     in {"1", "true", "yes", "on"}
 )
+PROXY_YOUTUBE_QUALITY = os.getenv("PROXY_YOUTUBE_QUALITY", "720").strip()
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "./downloads")
 DEBUG_LOG_PATH = os.getenv("PROXY_DEBUG_LOG", "./logs/proxy_bot_downloader.log")
 
@@ -36,6 +37,13 @@ def is_proxy_bot_username(username):
         return False
 
     return username.strip().lstrip("@").lower() == PROXY_BOT_USERNAME.lower()
+
+
+def _is_youtube_url(url):
+    host = urlparse(url).netloc.lower()
+    return host in {"youtu.be", "youtube.com", "www.youtube.com", "m.youtube.com"} or (
+        host.endswith(".youtube.com")
+    )
 
 
 def _logger():
@@ -274,6 +282,96 @@ async def _handle_subscription_prompt(client, message, request_id):
     return True
 
 
+def _quality_from_button_text(text):
+    match = re.search(r"(?<!\d)(\d{3,4})\s*p?(?!\d)", text or "", re.IGNORECASE)
+    if not match:
+        return None
+
+    return int(match.group(1))
+
+
+def _preferred_youtube_quality():
+    match = re.search(r"\d{3,4}", PROXY_YOUTUBE_QUALITY)
+    if not match:
+        return 720
+
+    return int(match.group(0))
+
+
+def _quality_button_candidates(message):
+    candidates = []
+    for row_index, button_index, button in _iter_message_buttons(message):
+        if getattr(button, "url", None):
+            continue
+
+        text = getattr(button, "text", "") or ""
+        quality = _quality_from_button_text(text)
+        if quality is None:
+            continue
+
+        candidates.append(
+            {
+                "row_index": row_index,
+                "button_index": button_index,
+                "button": button,
+                "text": text,
+                "quality": quality,
+            }
+        )
+
+    return candidates
+
+
+def _choose_quality_button(candidates):
+    preferred = _preferred_youtube_quality()
+
+    exact_matches = [
+        candidate for candidate in candidates if candidate["quality"] == preferred
+    ]
+    if exact_matches:
+        return exact_matches[0]
+
+    not_above = [
+        candidate for candidate in candidates if candidate["quality"] <= preferred
+    ]
+    if not_above:
+        return max(not_above, key=lambda candidate: candidate["quality"])
+
+    return min(candidates, key=lambda candidate: candidate["quality"])
+
+
+async def _click_youtube_quality_if_present(message, request_id):
+    candidates = _quality_button_candidates(message)
+    if not candidates:
+        return False
+
+    selected = _choose_quality_button(candidates)
+    try:
+        result = await message.click(
+            selected["row_index"],
+            selected["button_index"],
+        )
+        _log(
+            request_id,
+            "youtube_quality_clicked",
+            preferred_quality=_preferred_youtube_quality(),
+            selected_quality=selected["quality"],
+            button_text=selected["text"],
+            result=str(result),
+        )
+        return True
+    except Exception as exc:
+        _log_error(
+            request_id,
+            "youtube_quality_click_failed",
+            preferred_quality=_preferred_youtube_quality(),
+            selected=selected,
+            error=str(exc),
+            traceback=traceback.format_exc(),
+        )
+        return False
+
+
 def _is_error_message(message):
     text = (message.raw_text or "").lower()
     markers = [
@@ -415,6 +513,11 @@ async def download_via_proxy_bot(client, url, reason=None, download_media=False)
                             request_id,
                             download_media=download_media,
                         )
+
+                    if _is_youtube_url(url) and await _click_youtube_quality_if_present(
+                        response, request_id
+                    ):
+                        continue
 
                     if _is_error_message(response):
                         _log_error(

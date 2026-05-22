@@ -346,12 +346,12 @@ async def handle_content_link(event, client, LAST_MESSAGES):
 
     sender_id = sender.id
     sender_name = f"@{sender.username}" if sender.username else sender.first_name
-    status_message = await client.send_message(event.chat_id, "🕰️")
+    status_message = None
+    delete_original = False
 
     try:
         urls = re.findall(r"https?://\S+", text)
         if not urls:
-            await status_message.delete()
             return
 
         url = urls[0]
@@ -359,9 +359,9 @@ async def handle_content_link(event, client, LAST_MESSAGES):
         print(f"Инструкция: {instruction}")
 
         if not is_supported_content_url(url):
-            await client.send_message(event.chat_id, "Платформа не поддерживается.")
-            await status_message.delete()
             return
+
+        delete_original = True
 
         # Извлекаем тегнутых пользователей
         tagged_users = re.findall(r"@([\w\d_]+)", instruction)
@@ -385,6 +385,8 @@ async def handle_content_link(event, client, LAST_MESSAGES):
         display_url = shorten_tiktok_url(url, url)
         caption_link = format_caption_link(display_url)
 
+        status_message = await client.send_message(event.chat_id, "🕰️")
+
         content = await download_via_proxy_bot(
             client,
             url,
@@ -394,12 +396,14 @@ async def handle_content_link(event, client, LAST_MESSAGES):
         content = apply_conversion_if_needed(content, conversion_instruction)
 
         if not content:
+            if status_message:
+                await status_message.delete()
+                status_message = None
             await client.send_message(event.chat_id, "Не удалось скачать контент.")
             print(
                 "Подробности fallback-прокси: "
                 f"{get_proxy_debug_log_path()}"
             )
-            await status_message.delete()
             return
 
         # Готовим заголовок
@@ -414,6 +418,10 @@ async def handle_content_link(event, client, LAST_MESSAGES):
                 if title
                 else f"{escape(sender_name)}\n{caption_link}"
             )
+
+        if status_message:
+            await status_message.delete()
+            status_message = None
 
         # Отправляем контент с временным заголовком
         message = await asyncio.wait_for(
@@ -470,14 +478,22 @@ async def handle_content_link(event, client, LAST_MESSAGES):
         print(f"Критическая ошибка: {error_trace}")
 
         error_msg = "Произошла ошибка при обработке контента"
+        if status_message:
+            try:
+                await status_message.delete()
+            except:
+                pass
+            status_message = None
         await client.send_message(event.chat_id, error_msg)
     finally:
-        try:
-            await event.delete()
-        except:
-            pass
+        if delete_original:
+            try:
+                await event.delete()
+            except:
+                pass
 
-        try:
-            await status_message.delete()
-        except:
-            pass
+        if status_message:
+            try:
+                await status_message.delete()
+            except:
+                pass
