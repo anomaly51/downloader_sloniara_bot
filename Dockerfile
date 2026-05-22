@@ -24,9 +24,7 @@ RUN python -m pip install --upgrade pip
 
 RUN pip install telethon python-dotenv
 
-RUN pip install openai
-
-RUN pip install moviepy==1.0.3 \
+RUN pip install openai \
     && pip check
 
 COPY . .
