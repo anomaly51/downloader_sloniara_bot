@@ -10,15 +10,24 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        ffmpeg \
         wget \
         xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 
-RUN python -m pip install --upgrade pip \
-    && pip install -r requirements.txt
+RUN python -m pip install --upgrade pip
+
+RUN pip install telethon python-dotenv
+
+RUN pip install openai
+
+RUN pip install moviepy==1.0.3 \
+    && pip check
 
 COPY . .
 
