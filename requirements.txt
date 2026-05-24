@@ -2,3 +2,4 @@ telethon
 imageio-ffmpeg
 openai
 python-dotenv
+yt-dlp

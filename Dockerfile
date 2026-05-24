@@ -22,7 +22,7 @@ RUN pip install telethon python-dotenv
 
 RUN pip install imageio-ffmpeg
 
-RUN pip install openai \
+RUN pip install openai yt-dlp \
     && pip check
 
 COPY . .

@@ -7,6 +7,7 @@ from urllib.parse import urlparse, urlunparse
 from .file_utils import cleanup, sanitize_filename
 from .content_converters import convert_video_to_mp3, convert_video_to_ogg_opus
 from .openai_client import get_openai_client
+from .direct_downloader import download_direct, is_instagram_url
 from .proxy_bot_downloader import (
     download_via_proxy_bot,
     get_proxy_debug_log_path,
@@ -258,6 +259,9 @@ def apply_conversion_if_needed(content, conversion_instruction):
 def cleanup_content(content):
     """Очищает временные файлы после отправки."""
     try:
+        if not content:
+            return
+
         if content.get("file"):
             cleanup(content["file"])
 
@@ -268,9 +272,11 @@ def cleanup_content(content):
         if content.get("audio"):
             cleanup(content["audio"])
 
-        if content.get("media"):
-            for m in content["media"]:
-                cleanup(m.get("file_path", ""))
+        media = content.get("media")
+        if isinstance(media, list):
+            for m in media:
+                if isinstance(m, dict):
+                    cleanup(m.get("file_path", ""))
     except Exception as e:
         print(f"Ошибка при очистке файлов: {e}")
 
@@ -382,17 +388,22 @@ async def handle_content_link(event, client, LAST_MESSAGES):
 
         print(f"Команда конвертации: {conversion_instruction}")
 
-        display_url = shorten_tiktok_url(url, url)
+        display_url = url
+        if is_instagram_url(url):
+            display_url = url.split("?", 1)[0].rstrip("/")
+        display_url = shorten_tiktok_url(url, display_url)
         caption_link = format_caption_link(display_url)
 
         status_message = await client.send_message(event.chat_id, "🕰️")
 
-        content = await download_via_proxy_bot(
-            client,
-            url,
-            reason="proxy-only downloader",
-            download_media=bool(conversion_instruction),
-        )
+        content = await download_direct(url)
+        if not content:
+            content = await download_via_proxy_bot(
+                client,
+                url,
+                reason="proxy-only downloader",
+                download_media=bool(conversion_instruction),
+            )
         content = apply_conversion_if_needed(content, conversion_instruction)
 
         if not content:
