@@ -22,7 +22,3 @@ PROXY_AUTO_JOIN_SPONSORS=false docker compose up -d
 
 Run another environment:
 APP_ENV=dev docker compose up -d --build
-
-CI/CD:
-push to `main` builds the Docker image in GitHub Actions, pushes it to Harbor,
-and Flux updates the workload cluster automatically.
