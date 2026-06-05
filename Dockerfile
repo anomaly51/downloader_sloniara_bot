@@ -27,6 +27,14 @@ RUN pip install openai yt-dlp \
 
 COPY . .
 
+ARG APP_VERSION
+ARG BUILD_DATE
+ARG VCS_REF
+ENV APP_VERSION=$APP_VERSION
+ENV BUILD_DATE=$BUILD_DATE
+ENV VCS_REF=$VCS_REF
+RUN printf '%s\n' "$BUILD_DATE" > /app/.build-date
+
 RUN mkdir -p /app/content /app/downloads /app/logs
 
 CMD ["python", "main.py", "--env", "prod"]
