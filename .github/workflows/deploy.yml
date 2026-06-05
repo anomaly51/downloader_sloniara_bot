@@ -177,7 +177,12 @@ jobs:
 
           deadline=$((SECONDS + DEPLOY_TIMEOUT_SECONDS))
           while [ "$SECONDS" -lt "$deadline" ]; do
-            app_json="$(argocd app get "$ARGOCD_APPLICATION" --refresh -o json "${argocd_args[@]}")"
+            if ! app_json="$(timeout 30s argocd app get "$ARGOCD_APPLICATION" --refresh -o json "${argocd_args[@]}" 2>&1)"; then
+              echo "Waiting for ${ARGOCD_APPLICATION}: argocd app get failed or timed out"
+              echo "$app_json"
+              sleep "$DEPLOY_POLL_SECONDS"
+              continue
+            fi
             sync_status="$(jq -r '.status.sync.status // "Unknown"' <<< "$app_json")"
             health_status="$(jq -r '.status.health.status // "Unknown"' <<< "$app_json")"
             images="$(jq -r '.status.summary.images[]?' <<< "$app_json")"
@@ -194,5 +199,5 @@ jobs:
           done
 
           echo "Timed out waiting for ${ARGOCD_APPLICATION} to deploy ${IMAGE_REF}"
-          argocd app get "$ARGOCD_APPLICATION" -o wide "${argocd_args[@]}" || true
+          timeout 30s argocd app get "$ARGOCD_APPLICATION" -o wide "${argocd_args[@]}" || true
           exit 1
