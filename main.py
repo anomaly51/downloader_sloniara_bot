@@ -61,7 +61,7 @@ async def main():
 
     await client.start(phone=PHONE_NUMBER)
     asyncio.create_task(update_readers(client, LAST_MESSAGES))
-    print("Клиент запущен. Ожидаю сообщения... CI smoke")
+    print("Клиент запущен. Ожидаю сообщения...")
     await client.run_until_disconnected()
 
 
