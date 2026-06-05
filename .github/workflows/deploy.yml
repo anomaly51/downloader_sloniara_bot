@@ -165,6 +165,7 @@ jobs:
           fi
 
           if [ -n "${ARGOCD_USERNAME:-}" ] && [ -n "${ARGOCD_PASSWORD:-}" ]; then
+            unset ARGOCD_AUTH_TOKEN
             argocd login "$ARGOCD_SERVER" --username "$ARGOCD_USERNAME" --password "$ARGOCD_PASSWORD" "${argocd_common[@]}"
             argocd_args=(--server "$ARGOCD_SERVER" "${argocd_common[@]}")
           elif [ -n "${ARGOCD_AUTH_TOKEN:-}" ]; then
