@@ -164,13 +164,14 @@ jobs:
             argocd_common+=(--insecure)
           fi
 
-          if [ -n "${ARGOCD_AUTH_TOKEN:-}" ]; then
-            argocd_args=(--server "$ARGOCD_SERVER" --auth-token "$ARGOCD_AUTH_TOKEN" "${argocd_common[@]}")
+          if [ -n "${ARGOCD_USERNAME:-}" ] && [ -n "${ARGOCD_PASSWORD:-}" ]; then
+            argocd login "" --username "" --password "" "${argocd_common[@]}"
+            argocd_args=(--server "" "${argocd_common[@]}")
+          elif [ -n "${ARGOCD_AUTH_TOKEN:-}" ]; then
+            argocd_args=(--server "" --auth-token "" "${argocd_common[@]}")
           else
-            : "${ARGOCD_USERNAME:?Set ARGOCD_AUTH_TOKEN or ARGOCD_USERNAME}"
-            : "${ARGOCD_PASSWORD:?Set ARGOCD_AUTH_TOKEN or ARGOCD_PASSWORD}"
-            argocd login "$ARGOCD_SERVER" --username "$ARGOCD_USERNAME" --password "$ARGOCD_PASSWORD" "${argocd_common[@]}"
-            argocd_args=(--server "$ARGOCD_SERVER" "${argocd_common[@]}")
+            echo "Set ARGOCD_USERNAME and ARGOCD_PASSWORD or ARGOCD_AUTH_TOKEN"
+            exit 1
           fi
 
           deadline=$((SECONDS + DEPLOY_TIMEOUT_SECONDS))
