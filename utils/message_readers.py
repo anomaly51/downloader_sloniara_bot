@@ -269,9 +269,13 @@ async def update_readers(client, LAST_MESSAGES):
                     entry["next_check_at"] = time.monotonic() + min(
                         60, 3 * entry["failures"]
                     )
-                    if entry["failures"] >= READERS_MAX_FAILURES:
+                    message = str(e)
+                    if (
+                        "message ID used in the peer was invalid" in message
+                        or entry["failures"] >= READERS_MAX_FAILURES
+                    ):
                         entry["disabled"] = True
-                    if "Message not modified" not in str(e):
+                    if "Message not modified" not in message:
                         print(
                             "Ошибка обработки записи сообщения: "
                             f"{e}; failures={entry['failures']}"

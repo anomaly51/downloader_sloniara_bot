@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 from telethon import TelegramClient, events
+from telethon.errors import AuthKeyDuplicatedError
 from collections import deque
 from dotenv import load_dotenv
 import argparse
@@ -59,10 +60,39 @@ async def handler(event):
 
 
 async def main():
+    global client
     print(f"Клиент запускается с сессией: {SESSION_NAME}.session")
     from utils.message_readers import update_readers
 
-    await client.start(phone=PHONE_NUMBER)
+    session_file = SESSION_NAME if SESSION_NAME.endswith(".session") else f"{SESSION_NAME}.session"
+
+    while True:
+        try:
+            await client.connect()
+            if not await client.is_user_authorized():
+                print("Сессия не авторизована. Ожидаю вход через QR...")
+                while True:
+                    qr_login = await client.qr_login()
+                    print(f"QR URL: {qr_login.url}")
+                    print(f"QR exp: {qr_login.expires.isoformat()}")
+                    try:
+                        await qr_login.wait()
+                        print("QR авторизация успешно завершена")
+                        break
+                    except asyncio.TimeoutError:
+                        print("QR истек, генерирую новый...")
+                        continue
+            break
+        except AuthKeyDuplicatedError:
+            print(
+                f"AuthKeyDuplicatedError: перезапускаю сессию локально: {session_file}"
+            )
+            for suffix in ["", ".journal", ".wal"]:
+                path = f"{session_file}{suffix}"
+                if os.path.exists(path):
+                    os.remove(path)
+            client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+            continue
     asyncio.create_task(update_readers(client, LAST_MESSAGES))
     print("Клиент запущен. Ожидаю сообщения...")
     await client.run_until_disconnected()
