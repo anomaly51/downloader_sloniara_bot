@@ -18,6 +18,53 @@ from .message_readers import register_tracked_message, update_tracked_base_capti
 SEND_CONTENT_TIMEOUT = int(os.getenv("SEND_CONTENT_TIMEOUT", "180"))
 
 
+async def generate_personalized_message(
+    sender_name, tagged_user, content_type, instruction
+):
+    """Генерирует персонализированное сообщение через LLM."""
+    client = get_openai_client()
+
+    content_type_map = {
+        "audio": "аудио",
+        "voice": "голосовое сообщение",
+        "video": "видео",
+        "photos": "фото",
+        "mixed": "контент",
+    }
+
+    content_desc = content_type_map.get(content_type, "контент")
+
+    prompt = (
+        f"Пользователь {sender_name} отправил {content_desc} и отметил @{tagged_user}. "
+        f"Сгенерируй короткое (до 50 символов), Kоксичное сообщение с грубостями для @{tagged_user}, "
+        f"чтобы привлечь его внимание к этому контенту. Сообщение должно быть неформальным, передавать вайб и смысл такой как в инструкции"
+        f"инструкции, перефразируя их максимально близко к оригиналу. "
+        f"\n\nКонтекст инструкции: {instruction[:200] if instruction else 'нет инструкции'}"
+        f"\n\nПример: 'Эй @user, смотри, твой кумир - лох позорный!'"
+        f"\n\nТребования:"
+        f"\n1. Только текст без кавычек и спецсимволов"
+        f"\n2. Не более 50 символов"
+        f"\n3. Начинай с @{tagged_user}"
+        f"\n4. Учитывай тип контента и вайб инструкции"
+        f"\n5. Сохраняй смысл и тон инструкции, перефразируя"
+        f"\n6. Отправь только текст обращения. Не пиши ничего лишнего"
+    )
+
+    try:
+        response = client.completions.create(
+            model="deepseek/deepseek-chat", prompt=prompt, max_tokens=50
+        )
+        message = response.choices[0].text.strip()
+
+        # Убедимся, что сообщение начинается с тега пользователя
+        if not message.startswith(f"@{tagged_user}"):
+            return f"@{tagged_user}, {message}"
+        return message
+    except Exception as e:
+        print(f"Ошибка генерации сообщения: {e}")
+        return f"Эй, @{tagged_user}, смотри этот {content_desc}!"
+
+
 async def shorten_title(title):
     """Сокращает заголовок до 100 символов с помощью DeepSeek."""
     if not title:
@@ -227,7 +274,7 @@ def cleanup_content(content):
 
         media = content.get("media")
         if isinstance(media, list):
-            for m in content["media"]:
+            for m in media:
                 if isinstance(m, dict):
                     cleanup(m.get("file_path", ""))
     except Exception as e:
@@ -307,6 +354,7 @@ async def handle_content_link(event, client, LAST_MESSAGES):
     sender_name = f"@{sender.username}" if sender.username else sender.first_name
     status_message = None
     delete_original = False
+
     try:
         urls = re.findall(r"https?://\S+", text)
         if not urls:
@@ -320,6 +368,10 @@ async def handle_content_link(event, client, LAST_MESSAGES):
             return
 
         delete_original = True
+
+        # Извлекаем тегнутых пользователей
+        tagged_users = re.findall(r"@([\w\d_]+)", instruction)
+        tagged_user = tagged_users[0] if tagged_users else None
 
         # Определяем тип конвертации
         instruction_lower = instruction.lower()
@@ -404,6 +456,26 @@ async def handle_content_link(event, client, LAST_MESSAGES):
                     LAST_MESSAGES,
                 )
             )
+
+        # Отправляем персонализированное сообщение для тегнутого пользователя
+        if tagged_user:
+            personalized_message = await generate_personalized_message(
+                sender_name, tagged_user, content["type"], instruction
+            )
+
+            if isinstance(message, list) and message:
+                message_id = message[0].id
+            elif hasattr(message, "id"):
+                message_id = message.id
+            else:
+                message_id = None
+
+            if message_id:
+                await client.send_message(
+                    event.chat_id, personalized_message, reply_to=message_id
+                )
+            else:
+                await client.send_message(event.chat_id, personalized_message)
 
         # Очищаем временные файлы
         cleanup_content(content)
