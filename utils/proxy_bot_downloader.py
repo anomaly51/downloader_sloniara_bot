@@ -506,6 +506,11 @@ async def download_via_proxy_bot(client, url, reason=None, download_media=False)
                             _log(request_id, "resent_url_after_subscription")
                         continue
 
+                    if _is_youtube_url(url) and await _click_youtube_quality_if_present(
+                        response, request_id
+                    ):
+                        continue
+
                     if getattr(response, "file", None):
                         return await _proxy_media_content(
                             client,
@@ -513,11 +518,6 @@ async def download_via_proxy_bot(client, url, reason=None, download_media=False)
                             request_id,
                             download_media=download_media,
                         )
-
-                    if _is_youtube_url(url) and await _click_youtube_quality_if_present(
-                        response, request_id
-                    ):
-                        continue
 
                     if _is_error_message(response):
                         _log_error(
