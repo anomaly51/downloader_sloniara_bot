@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   deploy:
+    # Track the latest shared deploy workflow from github-actions-toolkit.
     uses: anomaly51/github-actions-toolkit/.github/workflows/harbor-argocd-app.yml@main
     with:
       app-name: downloader-sloniara-bot
