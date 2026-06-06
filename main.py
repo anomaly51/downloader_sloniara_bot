@@ -35,7 +35,7 @@ LAST_MESSAGES = deque(maxlen=READERS_TRACK_LIMIT)
 
 @client.on(events.NewMessage)
 async def handler(event):
-    from utils.content_sender import handle_content_link
+    from utils.content_sender import handle_content_link, is_supported_content_url
 
     if event.out:
         return
@@ -46,6 +46,9 @@ async def handler(event):
 
     urls = re.findall(r"https?://\S+", text)
     if not urls:
+        return
+
+    if not any(is_supported_content_url(url) for url in urls):
         return
 
     print(
