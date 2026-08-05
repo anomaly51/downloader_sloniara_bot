@@ -41,6 +41,25 @@ class GalleryAssetClassificationTest(unittest.TestCase):
                 direct_downloader._content_title(assets["metadata"]), "caption"
             )
 
+    def test_tiktok_audio_type_is_classified_as_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workdir = Path(directory)
+            audio = workdir / "track.mp4"
+            audio.write_bytes(b"audio-placeholder")
+            (workdir / "track.mp4.json").write_text(
+                json.dumps({"type": "audio", "title": "TikTok caption"}),
+                encoding="utf-8",
+            )
+
+            assets = direct_downloader._classify_assets(workdir)
+
+            self.assertEqual(assets["audio"], [audio])
+            self.assertEqual(assets["videos"], [])
+            self.assertEqual(
+                direct_downloader._content_title(assets["metadata"]),
+                "TikTok caption",
+            )
+
 
 @unittest.skipUnless(
     shutil.which("ffmpeg") and shutil.which("ffprobe"),

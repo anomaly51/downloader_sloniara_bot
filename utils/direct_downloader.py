@@ -95,7 +95,11 @@ def _classify_assets(workdir):
         described_paths.add(media_path.resolve())
         suffix = media_path.suffix.lower()
 
-        if metadata.get("audio_url") or suffix in AUDIO_EXTENSIONS:
+        if (
+            metadata.get("audio_url")
+            or metadata.get("type") == "audio"
+            or suffix in AUDIO_EXTENSIONS
+        ):
             assets["audio"].append(media_path)
         elif suffix in IMAGE_EXTENSIONS:
             assets["photos"].append(media_path)
@@ -121,6 +125,9 @@ def _content_title(metadata_items):
         description = (metadata.get("description") or "").strip()
         if description:
             return description
+        title = (metadata.get("title") or "").strip()
+        if title:
+            return title
 
     for metadata in metadata_items:
         audio_title = (metadata.get("audio_title") or "").strip()
