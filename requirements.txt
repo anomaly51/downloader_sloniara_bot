@@ -3,3 +3,5 @@ imageio-ffmpeg
 openai
 python-dotenv
 yt-dlp
+gallery-dl==1.32.9
+Pillow

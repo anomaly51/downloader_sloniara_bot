@@ -277,6 +277,9 @@ def cleanup_content(content):
             for m in media:
                 if isinstance(m, dict):
                     cleanup(m.get("file_path", ""))
+
+        if content.get("_workdir"):
+            cleanup(content["_workdir"])
     except Exception as e:
         print(f"Ошибка при очистке файлов: {e}")
 
