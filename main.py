@@ -60,12 +60,24 @@ async def handler(event):
 
 async def main():
     print(f"Клиент запускается с сессией: {SESSION_NAME}.session")
+    from utils.health import HEALTH_FILE, monitor_telegram
     from utils.message_readers import update_readers
 
+    HEALTH_FILE.unlink(missing_ok=True)
     await client.start(phone=PHONE_NUMBER)
-    asyncio.create_task(update_readers(client, LAST_MESSAGES))
-    print("Клиент запущен. Ожидаю сообщения...")
-    await client.run_until_disconnected()
+    tasks = [
+        asyncio.create_task(update_readers(client, LAST_MESSAGES)),
+        asyncio.create_task(monitor_telegram(client)),
+    ]
+    try:
+        print("Клиент запущен. Ожидаю сообщения...")
+        await client.run_until_disconnected()
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        HEALTH_FILE.unlink(missing_ok=True)
+        await client.disconnect()
 
 
 if __name__ == "__main__":
