@@ -130,14 +130,14 @@ class PhotoSlideshowTest(unittest.TestCase):
                 "ffmpeg",
                 "-v",
                 "error",
-                "-ss",
-                str(timestamp),
                 "-i",
                 str(video),
+                "-ss",
+                str(timestamp),
                 "-frames:v",
                 "1",
                 "-vf",
-                "scale=1:1",
+                "fps=30,scale=1:1",
                 "-pix_fmt",
                 "rgb24",
                 "-f",
@@ -184,9 +184,9 @@ class PhotoSlideshowTest(unittest.TestCase):
             self.assertAlmostEqual(float(data["format"]["duration"]), 12, delta=0.05)
             for timestamp, channel in (
                 (0.1, 0),
-                (3.9, 0),
+                (3.4, 0),
                 (4.1, 2),
-                (7.9, 2),
+                (7.4, 2),
                 (8.1, 1),
                 (11.9, 1),
             ):
@@ -196,6 +196,38 @@ class PhotoSlideshowTest(unittest.TestCase):
                 self.assertTrue(
                     all(value < 30 for i, value in enumerate(pixel) if i != channel)
                 )
+            video = next(
+                stream for stream in data["streams"] if stream["codec_type"] == "video"
+            )
+            self.assertAlmostEqual(float(video["duration"]), 12, delta=0.05)
+            self.assertLessEqual(int(video["nb_frames"]), 30)
+
+            # Halfway through the slide the images are side by side, not blended.
+            row = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-v",
+                    "error",
+                    "-i",
+                    str(output),
+                    "-ss",
+                    str(3 + 23 / 30),
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    "fps=30,format=rgb24,crop=160:1:0:60",
+                    "-f",
+                    "rawvideo",
+                    "pipe:1",
+                ],
+                check=True,
+                capture_output=True,
+            ).stdout
+            self.assertEqual(len(row), 160 * 3)
+            self.assertGreater(row[20 * 3], 220)  # outgoing red photo on the left
+            self.assertLess(row[20 * 3 + 2], 30)
+            self.assertGreater(row[140 * 3 + 2], 220)  # incoming blue on the right
+            self.assertLess(row[140 * 3], 30)
 
     def test_short_audio_does_not_truncate_or_repeat_photos(self):
         with tempfile.TemporaryDirectory() as directory:

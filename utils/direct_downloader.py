@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
@@ -15,6 +16,8 @@ INSTAGRAM_COOKIES_PATH = os.getenv("INSTAGRAM_COOKIES_PATH", "./instagram-cookie
 TIKTOK_COOKIES_PATH = os.getenv("TIKTOK_COOKIES_PATH", "./tiktok-cookies.txt")
 GALLERY_DL_TIMEOUT = int(os.getenv("GALLERY_DL_TIMEOUT", "240"))
 PHOTO_SECONDS = 4
+SLIDE_FPS = 30
+SLIDE_FRAMES = 12
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
@@ -170,10 +173,11 @@ def _normalize_photo(source, destination, canvas_size):
 
 
 def compose_photo_slideshow(photos, audio_path, output_path):
-    """Show each photo once for four seconds, with optional original audio."""
+    """Render four-second photo slots with a smooth slide into the next photo."""
     if not photos:
         return None
 
+    started = time.monotonic()
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     duration = PHOTO_SECONDS * len(photos)
@@ -186,13 +190,53 @@ def compose_photo_slideshow(photos, audio_path, output_path):
         for index, photo in enumerate(photos):
             _normalize_photo(photo, slideshow_dir / f"{index:04d}.jpg", canvas_size)
 
+        manifest = []
+
+        def add_frame(name, seconds):
+            # Relative generated names avoid escaping user-supplied filenames.
+            manifest.extend(
+                [
+                    f"file '{name}'",
+                    f"option framerate {SLIDE_FPS}",
+                    f"duration {seconds:.9f}",
+                ]
+            )
+
+        for index in range(len(photos)):
+            name = f"{index:04d}.jpg"
+            if index == len(photos) - 1:
+                # A final timestamp makes the last photo last exactly four seconds.
+                add_frame(name, PHOTO_SECONDS - 1 / SLIDE_FPS)
+                add_frame(name, 1 / SLIDE_FPS)
+                continue
+            add_frame(name, PHOTO_SECONDS - SLIDE_FRAMES / SLIDE_FPS)
+            with (
+                Image.open(slideshow_dir / name) as current,
+                Image.open(slideshow_dir / f"{index + 1:04d}.jpg") as following,
+            ):
+                for frame in range(1, SLIDE_FRAMES + 1):
+                    progress = frame / SLIDE_FRAMES
+                    eased = progress * progress * (3 - 2 * progress)
+                    offset = round(canvas_size[0] * eased)
+                    canvas = Image.new("RGB", canvas_size)
+                    canvas.paste(current, (-offset, 0))
+                    canvas.paste(following, (canvas_size[0] - offset, 0))
+                    frame_name = f"{index:04d}-{frame:02d}.jpg"
+                    canvas.save(slideshow_dir / frame_name, quality=92)
+                    add_frame(frame_name, 1 / SLIDE_FPS)
+
+        manifest_path = slideshow_dir / "manifest.txt"
+        manifest_path.write_text("\n".join(manifest) + "\n", encoding="utf-8")
+        prepared = time.monotonic()
         command = [
             _ffmpeg_executable(),
             "-y",
-            "-framerate",
-            f"1/{PHOTO_SECONDS}",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
             "-i",
-            str(slideshow_dir / "%04d.jpg"),
+            str(manifest_path),
         ]
         if audio_path:
             command.extend(["-i", str(audio_path)])
@@ -215,12 +259,16 @@ def compose_photo_slideshow(photos, audio_path, output_path):
             [
                 "-t",
                 str(duration),
-                "-r",
-                "30",
+                "-fps_mode",
+                "vfr",
                 "-c:v",
                 "libx264",
                 "-preset",
-                "veryfast",
+                "ultrafast",
+                "-threads",
+                "1",
+                "-bf",
+                "0",
                 "-crf",
                 "23",
                 "-pix_fmt",
@@ -231,6 +279,11 @@ def compose_photo_slideshow(photos, audio_path, output_path):
             ]
         )
         _run(command)
+    print(
+        f"slideshow: photos={len(photos)}, duration={duration}s, "
+        f"prepare={prepared - started:.2f}s, encode={time.monotonic() - prepared:.2f}s, "
+        f"total={time.monotonic() - started:.2f}s"
+    )
     return str(output_path) if output_path.is_file() else None
 
 
@@ -288,10 +341,14 @@ def _download_with_gallery_dl(url):
     command.append(_normalized_url(url))
 
     try:
-        result = _run(command)
-        if result.stdout.strip():
-            print(result.stdout.strip())
+        started = time.monotonic()
+        _run(command)
         assets = _classify_assets(workdir)
+        print(
+            f"gallery-dl: {time.monotonic() - started:.2f}s, "
+            f"photos={len(assets['photos'])}, videos={len(assets['videos'])}, "
+            f"audio={len(assets['audio'])}"
+        )
         content = _build_content(assets, workdir)
         if content:
             return content
