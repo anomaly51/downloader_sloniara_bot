@@ -16,8 +16,8 @@ INSTAGRAM_COOKIES_PATH = os.getenv("INSTAGRAM_COOKIES_PATH", "./instagram-cookie
 TIKTOK_COOKIES_PATH = os.getenv("TIKTOK_COOKIES_PATH", "./tiktok-cookies.txt")
 GALLERY_DL_TIMEOUT = int(os.getenv("GALLERY_DL_TIMEOUT", "240"))
 PHOTO_SECONDS = 4
-SLIDE_FPS = 30
-SLIDE_FRAMES = 12
+SLIDE_FPS = 60
+SLIDE_FRAMES = 48
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
@@ -259,14 +259,20 @@ def compose_photo_slideshow(photos, audio_path, output_path):
             [
                 "-t",
                 str(duration),
+                # Expand held photos to a regular cadence for mobile players.
+                # Only the moving frames need image compositing above.
+                "-vf",
+                f"fps={SLIDE_FPS}",
+                "-filter_threads",
+                "1",
                 "-fps_mode",
-                "vfr",
+                "cfr",
                 "-c:v",
                 "libx264",
                 "-preset",
                 "ultrafast",
                 "-threads",
-                "1",
+                "2",
                 "-bf",
                 "0",
                 "-crf",

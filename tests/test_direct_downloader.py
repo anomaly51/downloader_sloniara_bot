@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from itertools import pairwise
 from pathlib import Path
 
 from PIL import Image
@@ -103,7 +104,7 @@ class PhotoSlideshowTest(unittest.TestCase):
                 "-v",
                 "error",
                 "-show_entries",
-                "stream=codec_type,duration,nb_frames",
+                "stream=codec_type,duration,nb_frames,r_frame_rate,avg_frame_rate",
                 "-show_entries",
                 "format=duration",
                 "-of",
@@ -137,7 +138,7 @@ class PhotoSlideshowTest(unittest.TestCase):
                 "-frames:v",
                 "1",
                 "-vf",
-                "fps=30,scale=1:1",
+                "scale=1:1",
                 "-pix_fmt",
                 "rgb24",
                 "-f",
@@ -184,9 +185,9 @@ class PhotoSlideshowTest(unittest.TestCase):
             self.assertAlmostEqual(float(data["format"]["duration"]), 12, delta=0.05)
             for timestamp, channel in (
                 (0.1, 0),
-                (3.4, 0),
+                (3.1, 0),
                 (4.1, 2),
-                (7.4, 2),
+                (7.1, 2),
                 (8.1, 1),
                 (11.9, 1),
             ):
@@ -200,7 +201,9 @@ class PhotoSlideshowTest(unittest.TestCase):
                 stream for stream in data["streams"] if stream["codec_type"] == "video"
             )
             self.assertAlmostEqual(float(video["duration"]), 12, delta=0.05)
-            self.assertLessEqual(int(video["nb_frames"]), 30)
+            self.assertEqual(int(video["nb_frames"]), 720)
+            self.assertEqual(video["r_frame_rate"], "60/1")
+            self.assertEqual(video["avg_frame_rate"], "60/1")
 
             # Halfway through the slide the images are side by side, not blended.
             row = subprocess.run(
@@ -211,11 +214,11 @@ class PhotoSlideshowTest(unittest.TestCase):
                     "-i",
                     str(output),
                     "-ss",
-                    str(3 + 23 / 30),
+                    "3.6",
                     "-frames:v",
                     "1",
                     "-vf",
-                    "fps=30,format=rgb24,crop=160:1:0:60",
+                    "format=rgb24,crop=160:1:0:60",
                     "-f",
                     "rawvideo",
                     "pipe:1",
@@ -228,6 +231,59 @@ class PhotoSlideshowTest(unittest.TestCase):
             self.assertLess(row[20 * 3 + 2], 30)
             self.assertGreater(row[140 * 3 + 2], 220)  # incoming blue on the right
             self.assertLess(row[140 * 3], 30)
+
+            # Inspect the native frames, without an fps filter hiding timing gaps.
+            frames = json.loads(
+                subprocess.check_output(
+                    [
+                        "ffprobe",
+                        "-v",
+                        "error",
+                        "-select_streams",
+                        "v:0",
+                        "-show_frames",
+                        "-show_entries",
+                        "frame=best_effort_timestamp_time",
+                        "-of",
+                        "json",
+                        str(output),
+                    ]
+                )
+            )["frames"]
+            self.assertEqual(len(frames), 720)
+            for index, frame in enumerate(frames):
+                self.assertAlmostEqual(
+                    float(frame["best_effort_timestamp_time"]), index / 60, places=5
+                )
+
+            rows = subprocess.check_output(
+                [
+                    "ffmpeg",
+                    "-v",
+                    "error",
+                    "-i",
+                    str(output),
+                    "-vf",
+                    "trim=start=3.2:end=4,format=rgb24,crop=160:1:0:60",
+                    "-fps_mode",
+                    "passthrough",
+                    "-f",
+                    "rawvideo",
+                    "pipe:1",
+                ]
+            )
+            self.assertEqual(len(rows), 48 * 160 * 3)
+            incoming_widths = []
+            for start in range(0, len(rows), 160 * 3):
+                row = rows[start : start + 160 * 3]
+                incoming_widths.append(
+                    sum(row[x + 2] > row[x] for x in range(0, len(row), 3))
+                )
+            steps = [right - left for left, right in pairwise(incoming_widths)]
+            self.assertEqual(incoming_widths, sorted(incoming_widths))
+            self.assertGreater(len(set(incoming_widths)), 40)
+            self.assertLessEqual(max(steps), 6)
+            self.assertLessEqual(max(steps[:3] + steps[-3:]), 2)
 
     def test_short_audio_does_not_truncate_or_repeat_photos(self):
         with tempfile.TemporaryDirectory() as directory:

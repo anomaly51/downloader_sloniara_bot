@@ -25,10 +25,10 @@ APP_ENV=dev docker compose up -d --build
 
 Instagram and TikTok photo posts are rendered as one MP4. Each photo is
 shown once for 4 seconds, in the original post order. Total duration is
-4 seconds multiplied by the number of photos. During the final 0.4 seconds
+4 seconds multiplied by the number of photos. During the final 0.8 seconds
 of each slot, the next photo slides in from the right with easing. Static
-parts use sparse frames instead of encoding 30 identical frames per second;
-transitions retain 30 fps. Original audio is included
+photos are prepared once, with 48 frames generated per transition. The MP4
+uses a constant 60 fps for smooth playback in mobile players. Original audio is included
 when available: long tracks are trimmed with a short fade at the end;
 short tracks finish naturally while the remaining photos continue.
 Posts without available audio become silent videos. Photo albums received
