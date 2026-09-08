@@ -3,8 +3,11 @@ import json
 import logging
 import os
 import re
+import shutil
+import tempfile
 import time
 import traceback
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
@@ -12,15 +15,15 @@ from telethon.errors import UserAlreadyParticipantError
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.functions.messages import ImportChatInviteRequest
 
+from utils.direct_downloader import compose_photo_slideshow, is_gallery_dl_url
 
 PROXY_BOT_USERNAME = os.getenv("PROXY_DOWNLOADER_BOT", "TTPapaBot").strip().lstrip("@")
 PROXY_TIMEOUT = int(os.getenv("PROXY_DOWNLOADER_TIMEOUT", "120"))
 PROXY_START_TIMEOUT = int(os.getenv("PROXY_DOWNLOADER_START_TIMEOUT", "7"))
 PROXY_MAX_MESSAGES = int(os.getenv("PROXY_DOWNLOADER_MAX_MESSAGES", "8"))
-PROXY_AUTO_JOIN_SPONSORS = (
-    os.getenv("PROXY_AUTO_JOIN_SPONSORS", "true").strip().lower()
-    in {"1", "true", "yes", "on"}
-)
+PROXY_AUTO_JOIN_SPONSORS = os.getenv(
+    "PROXY_AUTO_JOIN_SPONSORS", "true"
+).strip().lower() in {"1", "true", "yes", "on"}
 PROXY_YOUTUBE_QUALITY = os.getenv("PROXY_YOUTUBE_QUALITY", "720").strip()
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "./downloads")
 DEBUG_LOG_PATH = os.getenv("PROXY_DEBUG_LOG", "./logs/proxy_bot_downloader.log")
@@ -419,7 +422,9 @@ async def _proxy_media_content(client, message, request_id, download_media=False
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     file_path = await client.download_media(message, file=DOWNLOAD_DIR)
     if not file_path:
-        _log_error(request_id, "download_media_empty", message=_message_snapshot(message))
+        _log_error(
+            request_id, "download_media_empty", message=_message_snapshot(message)
+        )
         return None
 
     _log(
@@ -433,6 +438,79 @@ async def _proxy_media_content(client, message, request_id, download_media=False
         return {"type": "photos", "files": [file_path], "title": ""}
 
     return {"type": content_type, "file": file_path, "title": ""}
+
+
+async def _proxy_photo_album(
+    client, conv, first_message, request_id, *, download_media=False
+):
+    """Collect the photo/audio response before rendering, including split albums."""
+    messages = [first_message]
+    deadline = time.monotonic() + 30
+    while len(messages) < 100:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            message = await conv.get_response(timeout=min(5, remaining))
+        except asyncio.TimeoutError:
+            break
+        if getattr(message, "file", None) and _content_type_for_message(message) in {
+            "photos",
+            "audio",
+        }:
+            messages.append(message)
+
+    photos = [
+        message
+        for message in messages
+        if _content_type_for_message(message) == "photos"
+    ]
+    if not photos:
+        return await _proxy_media_content(
+            client, first_message, request_id, download_media
+        )
+
+    # Telegram message IDs retain album order even if updates arrive out of order.
+    if all(getattr(message, "id", None) is not None for message in photos):
+        photos = list({message.id: message for message in photos}.values())
+        photos.sort(key=lambda message: message.id)
+    audio = next(
+        (
+            message
+            for message in messages
+            if _content_type_for_message(message) == "audio"
+        ),
+        None,
+    )
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    workdir = Path(tempfile.mkdtemp(prefix="proxy-album-", dir=DOWNLOAD_DIR))
+    try:
+        paths = []
+        for index, photo in enumerate(photos):
+            path = await client.download_media(
+                photo, file=str(workdir / f"photo-{index:04d}")
+            )
+            if not path:
+                raise OSError("Could not download a photo from the album")
+            paths.append(path)
+        audio_path = None
+        if audio:
+            audio_path = await client.download_media(audio, file=str(workdir / "audio"))
+        output = await asyncio.to_thread(
+            compose_photo_slideshow, paths, audio_path, workdir / "slideshow.mp4"
+        )
+        if not output:
+            raise OSError("Photo album rendering produced no video")
+    except BaseException:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
+    _log(
+        request_id,
+        "photo_album_video_ok",
+        photos=len(paths),
+        has_audio=bool(audio_path),
+    )
+    return {"type": "video", "file": output, "title": "", "_workdir": str(workdir)}
 
 
 async def download_via_proxy_bot(client, url, reason=None, download_media=False):
@@ -478,9 +556,7 @@ async def download_via_proxy_bot(client, url, reason=None, download_media=False)
                     remaining = max(1, PROXY_TIMEOUT - int(elapsed))
 
                     try:
-                        response = await conv.get_response(
-                            timeout=min(remaining, 30)
-                        )
+                        response = await conv.get_response(timeout=min(remaining, 30))
                     except asyncio.TimeoutError:
                         _log_error(
                             request_id,
@@ -512,6 +588,16 @@ async def download_via_proxy_bot(client, url, reason=None, download_media=False)
                         continue
 
                     if getattr(response, "file", None):
+                        if is_gallery_dl_url(url) and _content_type_for_message(
+                            response
+                        ) in {"photos", "audio"}:
+                            return await _proxy_photo_album(
+                                client,
+                                conv,
+                                response,
+                                request_id,
+                                download_media=download_media,
+                            )
                         return await _proxy_media_content(
                             client,
                             response,

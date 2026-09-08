@@ -156,7 +156,8 @@ async def send_content(client, chat_id, content, caption, sender_id, LAST_MESSAG
         elif content["type"] == "video":
             print(f"Отправляю video в чат {chat_id}: {content.get('file')}")
             message = await client.send_file(
-                chat_id, content["file"], caption=caption, parse_mode="html"
+                chat_id, content["file"], caption=caption, parse_mode="html",
+                supports_streaming=True,
             )
             register_tracked_message(
                 LAST_MESSAGES, chat_id, message, sender_id, caption

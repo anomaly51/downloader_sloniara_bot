@@ -11,6 +11,19 @@ from utils import direct_downloader
 
 
 class GalleryAssetClassificationTest(unittest.TestCase):
+    def test_photos_follow_post_order_instead_of_filename_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workdir = Path(directory)
+            expected = []
+            for position, name in enumerate(("z", "a", "m"), 1):
+                photo = workdir / f"{name}.jpg"
+                Image.new("RGB", (32, 32), "red").save(photo)
+                photo.with_suffix(".jpg.json").write_text(json.dumps({"num": position}))
+                expected.append(photo)
+            self.assertEqual(
+                direct_downloader._classify_assets(workdir)["photos"], expected
+            )
+
     def test_mp4_with_audio_url_is_classified_as_audio(self):
         with tempfile.TemporaryDirectory() as directory:
             workdir = Path(directory)
@@ -90,7 +103,7 @@ class PhotoSlideshowTest(unittest.TestCase):
                 "-v",
                 "error",
                 "-show_entries",
-                "stream=codec_type",
+                "stream=codec_type,duration,nb_frames",
                 "-show_entries",
                 "format=duration",
                 "-of",
@@ -103,7 +116,40 @@ class PhotoSlideshowTest(unittest.TestCase):
         )
         return json.loads(probe.stdout)
 
-    def test_loops_single_photo_for_complete_audio_duration(self):
+    def _photos(self, workdir):
+        photos = []
+        for index, color in enumerate(("red", "blue", "lime")):
+            path = workdir / f"photo-{index}.jpg"
+            Image.new("RGB", (160, 120), color).save(path)
+            photos.append(path)
+        return photos
+
+    def _pixel_at(self, video, timestamp):
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-ss",
+                str(timestamp),
+                "-i",
+                str(video),
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=1:1",
+                "-pix_fmt",
+                "rgb24",
+                "-f",
+                "rawvideo",
+                "pipe:1",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        return tuple(result.stdout)
+
+    def test_single_photo_lasts_four_seconds_with_short_audio(self):
         with tempfile.TemporaryDirectory() as directory:
             workdir = Path(directory)
             photo = workdir / "photo.jpg"
@@ -115,19 +161,16 @@ class PhotoSlideshowTest(unittest.TestCase):
             direct_downloader.compose_photo_slideshow([photo], audio, output)
 
             data = self._probe(output)
-            self.assertAlmostEqual(float(data["format"]["duration"]), 1.6, delta=0.15)
+            self.assertAlmostEqual(float(data["format"]["duration"]), 4, delta=0.05)
+            for stream in data["streams"]:
+                self.assertAlmostEqual(float(stream["duration"]), 4, delta=0.05)
 
-    def test_builds_carousel_for_complete_audio_duration(self):
+    def test_long_audio_is_trimmed_and_photos_change_every_four_seconds(self):
         with tempfile.TemporaryDirectory() as directory:
             workdir = Path(directory)
-            photos = []
-            for index, color in enumerate(("red", "blue", "green")):
-                path = workdir / f"photo-{index}.jpg"
-                Image.new("RGB", (160, 120), color).save(path)
-                photos.append(path)
-
+            photos = self._photos(workdir)
             audio = workdir / "audio.m4a"
-            self._make_audio(audio, 2.4)
+            self._make_audio(audio, 20)
             output = workdir / "result.mp4"
 
             result = direct_downloader.compose_photo_slideshow(photos, audio, output)
@@ -138,7 +181,52 @@ class PhotoSlideshowTest(unittest.TestCase):
                 {stream["codec_type"] for stream in data["streams"]},
                 {"audio", "video"},
             )
-            self.assertAlmostEqual(float(data["format"]["duration"]), 2.4, delta=0.15)
+            self.assertAlmostEqual(float(data["format"]["duration"]), 12, delta=0.05)
+            for timestamp, channel in (
+                (0.1, 0),
+                (3.9, 0),
+                (4.1, 2),
+                (7.9, 2),
+                (8.1, 1),
+                (11.9, 1),
+            ):
+                pixel = self._pixel_at(output, timestamp)
+                self.assertEqual(len(pixel), 3)
+                self.assertGreater(pixel[channel], 220, (timestamp, pixel))
+                self.assertTrue(
+                    all(value < 30 for i, value in enumerate(pixel) if i != channel)
+                )
+
+    def test_short_audio_does_not_truncate_or_repeat_photos(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workdir = Path(directory)
+            photos = self._photos(workdir)
+            audio = workdir / "audio.m4a"
+            self._make_audio(audio, 2.4)
+            output = workdir / "result.mp4"
+            direct_downloader.compose_photo_slideshow(photos, audio, output)
+            data = self._probe(output)
+            self.assertAlmostEqual(float(data["format"]["duration"]), 12, delta=0.05)
+            self.assertGreater(self._pixel_at(output, 11.9)[1], 220)
+
+    def test_photo_only_post_becomes_video_without_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workdir = Path(directory)
+            assets = {
+                "photos": self._photos(workdir),
+                "videos": [],
+                "audio": [],
+                "metadata": [{"description": "Album"}],
+            }
+            content = direct_downloader._build_content(assets, workdir)
+            self.assertEqual(content["type"], "video")
+            self.assertEqual(content["title"], "Album")
+            data = self._probe(content["file"])
+            self.assertEqual(
+                [stream["codec_type"] for stream in data["streams"]], ["video"]
+            )
+            self.assertAlmostEqual(float(data["format"]["duration"]), 12, delta=0.05)
+            self.assertFalse(list(workdir.glob("slideshow-*")))
 
 
 if __name__ == "__main__":

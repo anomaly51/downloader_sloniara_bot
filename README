@@ -22,3 +22,11 @@ PROXY_AUTO_JOIN_SPONSORS=false docker compose up -d
 
 Run another environment:
 APP_ENV=dev docker compose up -d --build
+
+Instagram and TikTok photo posts are rendered as one MP4. Each photo is
+shown once for 4 seconds, in the original post order. Total duration is
+4 seconds multiplied by the number of photos. Original audio is included
+when available: long tracks are trimmed with a short fade at the end;
+short tracks finish naturally while the remaining photos continue.
+Posts without available audio become silent videos. Photo albums received
+from the fallback downloader are assembled the same way.

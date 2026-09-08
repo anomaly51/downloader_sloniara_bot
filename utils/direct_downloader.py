@@ -14,6 +14,7 @@ DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "./downloads"))
 INSTAGRAM_COOKIES_PATH = os.getenv("INSTAGRAM_COOKIES_PATH", "./instagram-cookies.txt")
 TIKTOK_COOKIES_PATH = os.getenv("TIKTOK_COOKIES_PATH", "./tiktok-cookies.txt")
 GALLERY_DL_TIMEOUT = int(os.getenv("GALLERY_DL_TIMEOUT", "240"))
+PHOTO_SECONDS = 4
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
@@ -59,10 +60,6 @@ def _ffmpeg_executable():
     return os.getenv("FFMPEG_BINARY") or shutil.which("ffmpeg") or "ffmpeg"
 
 
-def _ffprobe_executable():
-    return os.getenv("FFPROBE_BINARY") or shutil.which("ffprobe") or "ffprobe"
-
-
 def _run(command, *, timeout=GALLERY_DL_TIMEOUT):
     return subprocess.run(
         command,
@@ -84,6 +81,7 @@ def _load_metadata(path):
 def _classify_assets(workdir):
     assets = {"photos": [], "videos": [], "audio": [], "metadata": []}
     described_paths = set()
+    photo_positions = {}
 
     for metadata_path in sorted(workdir.glob("*.json")):
         media_path = metadata_path.with_suffix("")
@@ -103,6 +101,10 @@ def _classify_assets(workdir):
             assets["audio"].append(media_path)
         elif suffix in IMAGE_EXTENSIONS:
             assets["photos"].append(media_path)
+            try:
+                photo_positions[media_path] = int(metadata["num"])
+            except (KeyError, TypeError, ValueError):
+                pass
         elif suffix in VIDEO_EXTENSIONS:
             assets["videos"].append(media_path)
 
@@ -117,6 +119,9 @@ def _classify_assets(workdir):
         elif suffix in VIDEO_EXTENSIONS:
             assets["videos"].append(media_path)
 
+    assets["photos"].sort(
+        key=lambda path: (photo_positions.get(path, float("inf")), path.name)
+    )
     return assets
 
 
@@ -138,23 +143,6 @@ def _content_title(metadata_items):
             return audio_title
 
     return ""
-
-
-def _audio_duration(audio_path):
-    result = _run(
-        [
-            _ffprobe_executable(),
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(audio_path),
-        ],
-        timeout=30,
-    )
-    return float(result.stdout.strip())
 
 
 def _canvas_size(photo_path):
@@ -182,70 +170,67 @@ def _normalize_photo(source, destination, canvas_size):
 
 
 def compose_photo_slideshow(photos, audio_path, output_path):
-    """Build a Telegram-compatible MP4 covering the complete audio track."""
-    if not photos or not audio_path:
-        return None
-
-    duration = _audio_duration(audio_path)
-    if duration <= 0:
+    """Show each photo once for four seconds, with optional original audio."""
+    if not photos:
         return None
 
     output_path = Path(output_path)
-    slideshow_dir = output_path.parent / "slideshow"
-    slideshow_dir.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    duration = PHOTO_SECONDS * len(photos)
     canvas_size = _canvas_size(photos[0])
-    normalized = []
 
-    for index, photo in enumerate(photos):
-        normalized_path = slideshow_dir / f"{index:04d}.jpg"
-        _normalize_photo(photo, normalized_path, canvas_size)
-        normalized.append(normalized_path)
+    with tempfile.TemporaryDirectory(
+        prefix="slideshow-", dir=output_path.parent
+    ) as directory:
+        slideshow_dir = Path(directory).resolve()
+        for index, photo in enumerate(photos):
+            _normalize_photo(photo, slideshow_dir / f"{index:04d}.jpg", canvas_size)
 
-    if len(normalized) == 1:
-        video_input = ["-loop", "1", "-i", str(normalized[0])]
-    else:
-        seconds_per_photo = duration / len(normalized)
-        manifest_path = slideshow_dir / "manifest.txt"
-        with manifest_path.open("w", encoding="utf-8") as manifest:
-            for image_path in normalized:
-                manifest.write(f"file '{image_path.as_posix()}'\n")
-                manifest.write(f"duration {seconds_per_photo:.6f}\n")
-            manifest.write(f"file '{normalized[-1].as_posix()}'\n")
-        video_input = ["-f", "concat", "-safe", "0", "-i", str(manifest_path)]
-
-    _run(
-        [
+        command = [
             _ffmpeg_executable(),
             "-y",
-            *video_input,
+            "-framerate",
+            f"1/{PHOTO_SECONDS}",
             "-i",
-            str(audio_path),
-            "-map",
-            "0:v:0",
-            "-map",
-            "1:a:0",
-            "-t",
-            f"{duration:.6f}",
-            "-r",
-            "30",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "23",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
-            "-shortest",
-            str(output_path),
+            str(slideshow_dir / "%04d.jpg"),
         ]
-    )
+        if audio_path:
+            command.extend(["-i", str(audio_path)])
+        command.extend(["-map", "0:v:0"])
+        if audio_path:
+            # A short track ends naturally; silence keeps every photo visible.
+            command.extend(
+                [
+                    "-map",
+                    "1:a:0",
+                    "-af",
+                    f"apad,afade=t=out:st={duration - 0.5}:d=0.5",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "128k",
+                ]
+            )
+        command.extend(
+            [
+                "-t",
+                str(duration),
+                "-r",
+                "30",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "23",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ]
+        )
+        _run(command)
     return str(output_path) if output_path.is_file() else None
 
 
@@ -256,30 +241,14 @@ def _build_content(assets, workdir):
     title = _content_title(assets["metadata"])
     base = {"title": title, "_workdir": str(workdir)}
 
-    if photos and audio:
-        try:
-            slideshow = compose_photo_slideshow(
-                photos, audio[0], workdir / "photo-audio.mp4"
-            )
-        except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            print(f"Не удалось собрать photo+audio видео: {exc}")
-            slideshow = None
-
-        if slideshow:
-            return {**base, "type": "video", "file": slideshow}
-
-        return {
-            **base,
-            "type": "photos",
-            "files": [str(path) for path in photos],
-            "audio": str(audio[0]),
-        }
+    if photos and not videos:
+        slideshow = compose_photo_slideshow(
+            photos, audio[0] if audio else None, workdir / "photo-slideshow.mp4"
+        )
+        return {**base, "type": "video", "file": slideshow} if slideshow else None
 
     if len(videos) == 1 and not photos:
         return {**base, "type": "video", "file": str(videos[0])}
-
-    if photos and not videos:
-        return {**base, "type": "photos", "files": [str(path) for path in photos]}
 
     if videos or photos:
         media = [
